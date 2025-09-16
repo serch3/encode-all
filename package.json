@@ -24,6 +24,7 @@
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@heroui/react": "^2.8.4",
+    "@swc/core": "^1.13.5",
     "@tailwindcss/vite": "^4.1.13",
     "electron-updater": "^6.3.9",
     "framer-motion": "^12.23.12",
