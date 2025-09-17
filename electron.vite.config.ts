@@ -1,5 +1,5 @@
 import { resolve } from 'path'
-import { defineConfig, swcPlugin } from 'electron-vite'
+import { defineConfig, swcPlugin, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -8,7 +8,7 @@ export default defineConfig({
     plugins: [swcPlugin()]
   },
   preload: {
-    plugins: [swcPlugin()]
+    plugins: [externalizeDepsPlugin()]
   },
   renderer: {
     resolve: {
