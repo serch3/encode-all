@@ -1,3 +1,4 @@
+Light theme defaults
 :root {
   --ev-c-white: #ffffff;
   --ev-c-white-soft: #f8f8f8;
@@ -7,6 +8,30 @@
   --ev-c-black-soft: #222222;
   --ev-c-black-mute: #282828;
 
+  --ev-c-gray-1: #a0a6b0;
+  --ev-c-gray-2: #c7cbd2;
+  --ev-c-gray-3: #e6e8ec;
+
+  --ev-c-text-1: rgba(28, 28, 30, 0.92);
+  --ev-c-text-2: rgba(28, 28, 30, 0.7);
+  --ev-c-text-3: rgba(28, 28, 30, 0.45);
+
+  --ev-button-alt-border: rgba(0, 0, 0, 0.08);
+  --ev-button-alt-text: var(--ev-c-text-1);
+  --ev-button-alt-bg: #f3f4f6;
+  --ev-button-alt-hover-border: rgba(0, 0, 0, 0.12);
+  --ev-button-alt-hover-text: var(--ev-c-text-1);
+  --ev-button-alt-hover-bg: #e5e7eb;
+
+  --color-background: #fafafa;
+  --color-background-soft: #ffffff;
+  --color-background-mute: #f3f4f6;
+  --color-text: var(--ev-c-text-1);
+  --bg: #f8f8f8;
+}
+
+/* Dark theme overrides */
+.dark {
   --ev-c-gray-1: #515c67;
   --ev-c-gray-2: #414853;
   --ev-c-gray-3: #32363f;
@@ -21,32 +46,17 @@
   --ev-button-alt-hover-border: transparent;
   --ev-button-alt-hover-text: var(--ev-c-text-1);
   --ev-button-alt-hover-bg: var(--ev-c-gray-2);
-}
 
-:root {
   --color-background: var(--ev-c-black);
   --color-background-soft: var(--ev-c-black-soft);
   --color-background-mute: var(--ev-c-black-mute);
-
   --color-text: var(--ev-c-text-1);
-}
-
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  font-weight: normal;
-}
-
-ul {
-  list-style: none;
+  --bg: linear-gradient(135deg, #1b1b1f 0%, #111822 100%);
 }
 
 body {
-  min-height: 100vh;
   color: var(--color-text);
-  background: var(--color-background);
+  margin: 0;
   line-height: 1.6;
   font-family:
     Inter,
@@ -64,4 +74,29 @@ body {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-image: var(--bg);
+  background-size: cover, cover;
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+  user-select: none;
+}
+
+code {
+  font-weight: 600;
+  padding: 3px 5px;
+  border-radius: 2px;
+  background-color: var(--color-background-mute);
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    SF Mono,
+    Menlo,
+    Consolas,
+    Liberation Mono,
+    monospace;
+  font-size: 85%;
 }
