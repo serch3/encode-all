@@ -1,4 +1,5 @@
 import { Card, CardBody, CardHeader } from '@heroui/react'
+import { buildFilenameFromPattern, PatternTokens } from '../utils/pattern'
 
 interface FfmpegPreviewProps {
   outputFormat: string // container/extension
@@ -50,13 +51,12 @@ export default function FfmpegPreview({
 
     const threadArg = threads > 0 ? `-threads ${threads}` : ''
     // build output file name from pattern tokens
-    const baseName = 'example'
-    const codecToken = videoCodec.replace('lib', '')
-    const outputFile = (regexPattern || '{name}')
-      .replace(/{name}/g, baseName)
-      .replace(/{codec}/g, codecToken)
-      .replace(/{ext}/g, outputFormat)
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
+    const tokens: PatternTokens = {
+      name: 'example',
+      codec: videoCodec.replace('lib', ''),
+      ext: outputFormat
+    }
+    const outputFile = buildFilenameFromPattern(regexPattern, tokens)
     const fileWithExt = outputFile.endsWith('.' + outputFormat)
       ? outputFile
       : `${outputFile}.${outputFormat}`

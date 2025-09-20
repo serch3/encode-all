@@ -3,6 +3,7 @@ import { useState } from 'react'
 import Layout from './components/Layout'
 import Settings from './components/Settings'
 import FfmpegPreview from './components/FfmpegPreview'
+import { buildFilenameFromPattern, PatternTokens } from './utils/pattern'
 
 function App(): React.JSX.Element {
   const [active, setActive] = useState<'encode' | 'settings' | 'about'>('encode')
@@ -112,10 +113,14 @@ function App(): React.JSX.Element {
                 />
                 <div className="text-xs text-foreground/60">
                   Preview:{' '}
-                  {renamePattern
-                    .replace(/{name}/g, 'example')
-                    .replace(/{codec}/g, videoCodec.replace('lib', ''))
-                    .replace(/{ext}/g, container)}
+                  {(() => {
+                    const tokens: PatternTokens = {
+                      name: 'example',
+                      codec: videoCodec.replace('lib', ''),
+                      ext: container
+                    }
+                    return buildFilenameFromPattern(renamePattern, tokens)
+                  })()}
                 </div>
               </div>
               <Button color="primary">Start Encoding</Button>
