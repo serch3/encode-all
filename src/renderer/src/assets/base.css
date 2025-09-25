@@ -100,3 +100,17 @@ code {
     monospace;
   font-size: 85%;
 }
+
+/* Utilities */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-filename-width {
+  max-width: 230px; /* adjust as needed for layout */
+}

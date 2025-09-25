@@ -1,6 +1,7 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { readdirSync, statSync } from 'fs'
 import icon from '../../resources/icon.png?asset'
 
 function createWindow(): void {
@@ -51,6 +52,53 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+
+  // IPC handlers for folder reading
+  ipcMain.handle('select-folder', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory']
+    })
+    return result.filePaths[0] || null
+  })
+
+  ipcMain.handle('read-video-files', async (_, folderPath: string) => {
+    try {
+      const files = readdirSync(folderPath)
+      const videoExtensions = [
+        '.mp4',
+        '.mkv',
+        '.avi',
+        '.mov',
+        '.wmv',
+        '.flv',
+        '.webm',
+        '.m4v',
+        '.3gp'
+      ]
+
+      const videoFiles = files
+        .filter((file) => {
+          const ext = file.toLowerCase().substring(file.lastIndexOf('.'))
+          return videoExtensions.includes(ext)
+        })
+        .map((file) => {
+          const fullPath = join(folderPath, file)
+          const stats = statSync(fullPath)
+          return {
+            name: file,
+            path: fullPath,
+            size: stats.size,
+            modified: stats.mtime.getTime()
+          }
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+      return videoFiles
+    } catch (error) {
+      console.error('Error reading video files:', error)
+      return []
+    }
+  })
 
   createWindow()
 
