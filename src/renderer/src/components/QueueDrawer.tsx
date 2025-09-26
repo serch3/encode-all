@@ -108,7 +108,7 @@ export default function QueueDrawer({
             </div>
           </div>
 
-          <ScrollShadow className="h-full pr-1">
+          <ScrollShadow className="h-full w-full overflow-x-hidden">
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-12 h-12 bg-default-100 rounded-full flex items-center justify-center mb-4">
@@ -122,40 +122,40 @@ export default function QueueDrawer({
                 </p>
               </div>
             ) : (
-              <div className="px-4 py-2">
-                <div className="space-y-2 max-w-full">
+              <div className="px-4 py-2 w-full">
+                <div className="space-y-2 w-full">
                   {filtered.map((file) => (
                     <Card
                       key={file.path}
                       isPressable={!!onSelectFile}
                       onPress={() => onSelectFile?.(file)}
-                      className={`transition-shadow duration-150 border-0 shadow-sm hover:shadow-md ${
+                      className={`transition-shadow duration-150 border-0 shadow-sm hover:shadow-md w-full min-w-0 ${
                         isSelected(file)
                           ? 'ring-1 ring-primary/30 bg-primary/5 shadow-primary/20'
                           : 'hover:bg-default-50/80'
                       }`}
                     >
-                      <CardBody className="px-4 py-3 h-16">
-                        <div className="flex items-center justify-between gap-3 h-full">
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <CardBody className="px-4 py-3 h-16 w-full min-w-0">
+                        <div className="flex items-center justify-between gap-3 h-full w-full min-w-0">
+                          <div className="flex items-center gap-3 flex-1 min-w-0 overflow-hidden">
                             <div className="w-3 h-3 bg-gradient-to-br from-primary to-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
                               <span className="text-white text-[8px] font-bold">▶</span>
                             </div>
                             
-                            <div className="flex-1 min-w-0 flex flex-col justify-center">
+                            <div className="flex-1 min-w-0 overflow-hidden">
                               <h4
-                                className="font-medium text-sm text-foreground truncate mb-1 leading-tight"
+                                className="font-medium text-sm text-foreground truncate mb-1 leading-tight block"
                                 title={file.name}
                               >
                                 {file.name}
                               </h4>
                               
-                              <div className="flex items-center gap-3 text-xs text-default-500">
-                                <div className="flex items-center gap-1">
+                              <div className="flex items-center gap-3 text-xs text-default-500 flex-wrap">
+                                <div className="flex items-center gap-1 flex-shrink-0">
                                   <span className="text-[10px] opacity-60">💾</span>
                                   <span className="font-mono">{formatFileSize(file.size)}</span>
                                 </div>
-                                <div className="flex items-center gap-1">
+                                <div className="flex items-center gap-1 flex-shrink-0">
                                   <span className="text-[10px] opacity-60">📅</span>
                                   <span>{formatDate(file.modified)}</span>
                                 </div>
