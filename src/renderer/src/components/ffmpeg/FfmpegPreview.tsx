@@ -1,11 +1,12 @@
 import { Card, CardBody, CardHeader } from '@heroui/react'
-import { buildFilenameFromPattern, PatternTokens } from '../utils/pattern'
+import { buildFilenameFromPattern } from '../../utils/pattern'
+import type { PatternTokens } from '../../types'
 
 interface FfmpegPreviewProps {
-  outputFormat: string // container/extension
+  outputFormat: string
   outputDirectory: string
   regexPattern: string // rename pattern with tokens {name} {codec} {ext}
-  threads: number
+  threads: number // ffmpeg threads flag
   inputFiles: string[]
   videoCodec?: string
   audioCodec?: string

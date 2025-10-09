@@ -1,17 +1,32 @@
-// Utility to build output filenames based on a pattern and token map.
-// Tokens use single braces: {name} {codec} {ext} {quality} {channels} {audiobitrate}
-// Unknown tokens are left as-is; invalid chars are sanitized at the end.
+/**
+ * Token map for building output filenames.
+ * All tokens use single braces: {token}
+ */
 export interface PatternTokens {
+  /** Base filename without extension */
   name: string
+  /** Video codec identifier (e.g., 'x265', 'x264') */
   codec: string
+  /** File extension (e.g., 'mkv', 'mp4') */
   ext: string
+  /** Video quality indicator (optional) */
   quality?: string
+  /** Audio channel configuration (optional, e.g., 'stereo', '5.1') */
   channels?: string
+  /** Audio bitrate in kbps (optional) */
   audiobitrate?: string
 }
 
 const TOKEN_REGEX = /{([a-zA-Z]+)}/g
 
+/**
+ * Builds an output filename based on a pattern and token map.
+ *
+ * @param pattern - Pattern string with tokens in braces (e.g., '{name}_{codec}.{ext}')
+ * @param tokens - Token values to replace in the pattern
+ * @returns Sanitized filename
+ *
+ */
 export function buildFilenameFromPattern(pattern: string, tokens: PatternTokens): string {
   const safePattern = pattern || '{name}'
   const dict: Record<string, string | undefined> = {

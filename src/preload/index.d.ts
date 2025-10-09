@@ -1,16 +1,5 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
-
-interface CustomAPI {
-  selectFolder: () => Promise<string | null>
-  readVideoFiles: (folderPath: string) => Promise<
-    Array<{
-      name: string
-      path: string
-      size: number
-      modified: number
-    }>
-  >
-}
+import type { CustomAPI } from './api.types'
 
 declare global {
   interface Window {
@@ -18,3 +7,6 @@ declare global {
     api: CustomAPI
   }
 }
+
+export type { CustomAPI } from './api.types'
+export {}

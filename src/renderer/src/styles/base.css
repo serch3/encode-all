@@ -1,5 +1,4 @@
-Light theme defaults
-:root {
+Light theme defaults :root {
   --ev-c-white: #ffffff;
   --ev-c-white-soft: #f8f8f8;
   --ev-c-white-mute: #f2f2f2;
@@ -112,5 +111,5 @@ code {
 }
 
 .queue-filename-width {
-  max-width: 230px; /* adjust as needed for layout */
+  max-width: 230px;
 }

@@ -7,7 +7,11 @@ import { electronAPI } from '@electron-toolkit/preload'
 const api = {
   selectFolder: () => electronAPI.ipcRenderer.invoke('select-folder'),
   readVideoFiles: (folderPath: string) =>
-    electronAPI.ipcRenderer.invoke('read-video-files', folderPath)
+    electronAPI.ipcRenderer.invoke('read-video-files', folderPath),
+  // FFmpeg-related APIs
+  checkFfmpeg: () => electronAPI.ipcRenderer.invoke('check-ffmpeg'),
+  selectFfmpegPath: () => electronAPI.ipcRenderer.invoke('select-ffmpeg-path'),
+  openExternal: (url: string) => electronAPI.ipcRenderer.invoke('open-external', url)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
@@ -18,7 +22,8 @@ if (process.contextIsolated) {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
-    console.error(error)
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Failed to expose APIs to renderer:', errorMessage)
   }
 } else {
   // @ts-ignore (define in dts)

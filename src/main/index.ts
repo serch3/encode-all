@@ -2,7 +2,88 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { readdirSync, statSync } from 'fs'
+import { exec } from 'child_process'
+import { promisify } from 'util'
 import icon from '../../resources/icon.png?asset'
+
+const execAsync = promisify(exec)
+
+/**
+ * Checks if FFmpeg is installed and available on the system.
+ *
+ * @returns Promise with FFmpeg installation status, version, and path
+ *
+ * @remarks
+ * - Attempts to detect FFmpeg using `ffmpeg -version` command
+ * - Tries to locate the executable path using platform-specific commands (where/which)
+ */
+async function checkFfmpegInstallation(): Promise<{
+  isInstalled: boolean
+  version?: string
+  path?: string
+  error?: string
+}> {
+  try {
+    const { stdout } = await execAsync('ffmpeg -version')
+    const versionMatch = stdout.match(/ffmpeg version ([^\s]+)/)
+    const version = versionMatch ? versionMatch[1] : 'Unknown'
+
+    // Try to get the path - if this fails, the outer catch will handle it
+    const { stdout: wherePath } = await execAsync(
+      process.platform === 'win32' ? 'where ffmpeg' : 'which ffmpeg'
+    )
+    const path = wherePath.trim().split('\n')[0]
+
+    return {
+      isInstalled: true,
+      version,
+      path
+    }
+  } catch (error) {
+    return {
+      isInstalled: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
+}
+
+/**
+ * Opens a file dialog to allow the user to select an FFmpeg executable.
+ *
+ * @returns Promise with the selected file path or null if cancelled
+ *
+ * @remarks
+ * - Uses platform-specific file filters (.exe for Windows, all files for Unix-like systems)
+ * - Returns null if the user cancels the dialog
+ */
+async function selectFfmpegExecutable(): Promise<string | null> {
+  const result = await dialog.showOpenDialog({
+    title: 'Select FFmpeg Executable',
+    filters: [
+      { name: 'Executable Files', extensions: process.platform === 'win32' ? ['exe'] : ['*'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  })
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null
+  }
+
+  const selectedPath = result.filePaths[0]
+
+  // Verify it's actually FFmpeg
+  try {
+    const { stdout } = await execAsync(`"${selectedPath}" -version`)
+    if (stdout.includes('ffmpeg version')) {
+      return selectedPath
+    } else {
+      throw new Error('Selected file is not a valid FFmpeg executable')
+    }
+  } catch {
+    throw new Error('Selected file is not a valid FFmpeg executable')
+  }
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -11,7 +92,7 @@ function createWindow(): void {
     height: 670,
     show: false,
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -95,9 +176,23 @@ app.whenReady().then(() => {
 
       return videoFiles
     } catch (error) {
-      console.error('Error reading video files:', error)
-      return []
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      console.error('Error reading video files:', errorMessage)
+      throw new Error(`Failed to read video files from ${folderPath}: ${errorMessage}`)
     }
+  })
+
+  // FFmpeg-related IPC handlers
+  ipcMain.handle('check-ffmpeg', async () => {
+    return await checkFfmpegInstallation()
+  })
+
+  ipcMain.handle('select-ffmpeg-path', async () => {
+    return await selectFfmpegExecutable()
+  })
+
+  ipcMain.handle('open-external', async (_, url: string) => {
+    shell.openExternal(url)
   })
 
   createWindow()

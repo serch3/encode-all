@@ -1,44 +1,81 @@
 import { Button, Card, CardBody, Input, Select, SelectItem } from '@heroui/react'
-import { useState } from 'react'
-import Layout from './components/Layout'
-import Settings from './components/Settings'
-import FfmpegPreview from './components/FfmpegPreview'
-import QueueDrawer from './components/QueueDrawer'
-import { buildFilenameFromPattern, PatternTokens } from './utils/pattern'
+import { useState, useEffect } from 'react'
+import Layout from './components/layout'
+import { SettingsPage } from './components/pages'
+import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
+import { QueueDrawer } from './components/encoding'
+import { buildFilenameFromPattern } from './utils/pattern'
+import type { VideoFile, PatternTokens } from './types'
 
 function App(): React.JSX.Element {
-  const [active, setActive] = useState<'encode' | 'settings' | 'about'>('encode')
+  // for debugging purposes
+  const FORCE_FFMPEG_MODAL = false
   const [showFfmpegPreview, setShowFfmpegPreview] = useState<boolean>(false)
+
+  // Main navigation state
+  const [active, setActive] = useState<'encode' | 'settings' | 'about'>('encode')
+
+  // FFmpeg setup state
+  const [showFfmpegSetup, setShowFfmpegSetup] = useState<boolean>(false)
+  const [ffmpegChecked, setFfmpegChecked] = useState<boolean>(false)
 
   // Queue related state
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false)
-  const [videoFiles, setVideoFiles] = useState<
-    Array<{
-      name: string
-      path: string
-      size: number
-      modified: number
-    }>
-  >([])
-  const [selectedFiles, setSelectedFiles] = useState<
-    Array<{
-      name: string
-      path: string
-      size: number
-      modified: number
-    }>
-  >([])
+  const [videoFiles, setVideoFiles] = useState<VideoFile[]>([])
+  const [selectedFiles, setSelectedFiles] = useState<VideoFile[]>([])
 
+  // Encoding configuration state
   const [container, setContainer] = useState<string>('mkv')
   const [videoCodec, setVideoCodec] = useState<string>('libx265')
   const [audioCodec, setAudioCodec] = useState<string>('aac')
-  const [audioChannels, setAudioChannels] = useState<string>('same') // same, mono, stereo, 5.1
+  const [audioChannels, setAudioChannels] = useState<string>('same')
   const [audioBitrate, setAudioBitrate] = useState<number>(128)
-  const [volumeDb, setVolumeDb] = useState<number>(0) // positive or negative dB
+  const [volumeDb, setVolumeDb] = useState<number>(0)
   const [renamePattern, setRenamePattern] = useState<string>('{name}_{codec}')
   const [outputDirectory, setOutputDirectory] = useState<string>('')
   const [threads, setThreads] = useState<number>(0)
-  const [inputFiles] = useState<string[]>([])
+
+  // Check FFmpeg installation on startup
+  useEffect(() => {
+    const checkFFmpeg = async (): Promise<void> => {
+      // use localStorage to remember if user has already been prompted
+      const hasBeenChecked = localStorage.getItem('ffmpeg-checked')
+      if (hasBeenChecked) {
+        setFfmpegChecked(true)
+        return
+      }
+
+      try {
+        const status = await window.api?.checkFfmpeg()
+        if (!status?.isInstalled) {
+          setShowFfmpegSetup(true)
+        } else {
+          setFfmpegChecked(true)
+          localStorage.setItem('ffmpeg-checked', 'true')
+        }
+      } catch (error) {
+        // Log error and show setup modal as fallback
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+        console.error('Failed to check FFmpeg:', errorMessage)
+        setShowFfmpegSetup(true)
+      }
+    }
+
+    void checkFFmpeg()
+  }, [])
+
+  // Handlers for FFmpeg setup modal
+  const handleFfmpegSetupClose = (): void => {
+    setShowFfmpegSetup(false)
+    setFfmpegChecked(true)
+    localStorage.setItem('ffmpeg-checked', 'true')
+  }
+
+  // handler for skipping FFmpeg setup
+  const handleFfmpegSetupSkip = (): void => {
+    setShowFfmpegSetup(false)
+    setFfmpegChecked(true)
+  }
 
   // Queue functions
   const handleSelectFolder = async (): Promise<void> => {
@@ -50,23 +87,19 @@ function App(): React.JSX.Element {
         setIsQueueOpen(true)
       }
     } catch (error) {
-      console.error('Error selecting folder:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to select folder'
+      console.error('Error selecting folder:', errorMessage)
+      // TODO: add error toast/notification
     }
   }
 
-  const handleFileSelect = (file: {
-    name: string
-    path: string
-    size: number
-    modified: number
-  }): void => {
+  const handleFileSelect = (file: VideoFile): void => {
     setSelectedFiles((prev) => {
       const isAlreadySelected = prev.some((selected) => selected.path === file.path)
       if (isAlreadySelected) {
         return prev.filter((selected) => selected.path !== file.path)
-      } else {
-        return [...prev, file]
       }
+      return [...prev, file]
     })
   }
 
@@ -76,6 +109,16 @@ function App(): React.JSX.Element {
 
   const handleClearSelection = (): void => {
     setSelectedFiles([])
+  }
+
+  // Generate preview of filename pattern
+  const getPreviewFilename = (): string => {
+    const tokens: PatternTokens = {
+      name: 'example',
+      codec: videoCodec.replace('lib', ''),
+      ext: container
+    }
+    return buildFilenameFromPattern(renamePattern, tokens)
   }
 
   return (
@@ -181,19 +224,11 @@ function App(): React.JSX.Element {
                     onChange={(e) => setRenamePattern(e.target.value)}
                     description="Tokens: {name} {codec} {ext}"
                   />
-                  <div className="text-xs text-foreground/60">
-                    Preview:{' '}
-                    {(() => {
-                      const tokens: PatternTokens = {
-                        name: 'example',
-                        codec: videoCodec.replace('lib', ''),
-                        ext: container
-                      }
-                      return buildFilenameFromPattern(renamePattern, tokens)
-                    })()}
-                  </div>
+                  <div className="text-xs text-foreground/60">Preview: {getPreviewFilename()}</div>
                 </div>
-                <Button color="primary">Start Encoding</Button>
+                <Button color="primary" isDisabled={!ffmpegChecked}>
+                  Start Encoding
+                </Button>
               </CardBody>
             </Card>
             {showFfmpegPreview && (
@@ -203,7 +238,7 @@ function App(): React.JSX.Element {
                   outputDirectory={outputDirectory}
                   regexPattern={renamePattern}
                   threads={threads}
-                  inputFiles={inputFiles}
+                  inputFiles={selectedFiles.map((f) => f.path)}
                   videoCodec={videoCodec}
                   audioCodec={audioCodec}
                   audioChannels={audioChannels}
@@ -215,7 +250,7 @@ function App(): React.JSX.Element {
           </div>
         )}
         {active === 'settings' && (
-          <Settings
+          <SettingsPage
             showFfmpegPreview={showFfmpegPreview}
             onShowFfmpegPreviewChange={setShowFfmpegPreview}
           />
@@ -231,6 +266,12 @@ function App(): React.JSX.Element {
         selectedFiles={selectedFiles}
         onSelectAll={handleSelectAll}
         onClearSelection={handleClearSelection}
+      />
+
+      <FfmpegSetup
+        isOpen={FORCE_FFMPEG_MODAL || showFfmpegSetup}
+        onClose={handleFfmpegSetupClose}
+        onSkip={handleFfmpegSetupSkip}
       />
     </>
   )

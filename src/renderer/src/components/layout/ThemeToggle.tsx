@@ -37,6 +37,11 @@ export const SunIcon = (props: React.SVGProps<SVGSVGElement>): React.JSX.Element
   </svg>
 )
 
+/**
+ * Checks if the user's system prefers dark color scheme.
+ *
+ * @returns true if dark mode is preferred, false otherwise
+ */
 function getSystemPrefersDark(): boolean {
   return (
     typeof window !== 'undefined' &&
@@ -45,47 +50,83 @@ function getSystemPrefersDark(): boolean {
   )
 }
 
+/**
+ * Applies the theme class to the document root element.
+ *
+ * @param theme - The theme to apply ('light' or 'dark')
+ */
 function applyThemeClass(theme: 'light' | 'dark'): void {
   const root = document.documentElement
   root.classList.toggle('dark', theme === 'dark')
 }
 
+/**
+ * ThemeToggle component provides a switch to toggle between light and dark themes.
+ *
+ * @returns A themed switch component with sun/moon icons
+ */
 export default function ThemeToggle(): React.JSX.Element {
   const [isDark, setIsDark] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY) as 'light' | 'dark' | null
       if (saved === 'light' || saved === 'dark') return saved === 'dark'
-    } catch {
-      // ignore
+    } catch (error) {
+      console.warn('Unable to get theme from localStorage:', error)
     }
     return getSystemPrefersDark()
   })
 
+  // Track if the user has explicitly set a preference
+  const [hasUserPreference, setHasUserPreference] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      return saved !== null
+    } catch {
+      return false
+    }
+  })
+
+  // Apply theme class (but don't save to localStorage on mount)
   useEffect((): void => {
     applyThemeClass(isDark ? 'dark' : 'light')
-    try {
-      localStorage.setItem(STORAGE_KEY, isDark ? 'dark' : 'light')
-    } catch {
-      // ignore
-    }
   }, [isDark])
 
+  // handle theme and save preference to localStorage
+  const handleToggle = (value: boolean): void => {
+    setIsDark(value)
+    setHasUserPreference(true)
+    try {
+      localStorage.setItem(STORAGE_KEY, value ? 'dark' : 'light')
+    } catch (error) {
+      console.warn('Failed to save theme to localStorage:', error)
+    }
+  }
+
+  // Listen for system theme changes
   useEffect(() => {
+    // Only respond to system changes if user hasn't set a preference
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const handler = (e: MediaQueryListEvent): void => {
-      const saved = localStorage.getItem(STORAGE_KEY) as 'light' | 'dark' | null
-      if (!saved) setIsDark(e.matches)
+      if (!hasUserPreference) {
+        setIsDark(e.matches)
+      }
     }
-    mq.addEventListener?.('change', handler)
-    return () => mq.removeEventListener?.('change', handler)
-  }, [])
+
+    // Use modern addEventListener if available
+    if (mq.addEventListener) {
+      mq.addEventListener('change', handler)
+      return () => mq.removeEventListener('change', handler)
+    }
+    // Fallback
+    return undefined
+  }, [hasUserPreference])
 
   return (
     <Switch
       color="secondary"
       size="md"
       isSelected={isDark}
-      onValueChange={setIsDark}
+      onValueChange={handleToggle}
       thumbIcon={({ isSelected, className }) =>
         isSelected ? <SunIcon className={className} /> : <MoonIcon className={className} />
       }

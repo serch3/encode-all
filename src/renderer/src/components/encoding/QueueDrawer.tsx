@@ -12,13 +12,7 @@ import {
   ScrollShadow,
   Input
 } from '@heroui/react'
-
-interface VideoFile {
-  name: string
-  path: string
-  size: number
-  modified: number
-}
+import type { VideoFile } from '../../types'
 
 interface QueueDrawerProps {
   isOpen: boolean
@@ -141,7 +135,7 @@ export default function QueueDrawer({
                             <div className="w-3 h-3 bg-gradient-to-br from-primary to-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
                               <span className="text-white text-[8px] font-bold">▶</span>
                             </div>
-                            
+
                             <div className="flex-1 min-w-0 overflow-hidden">
                               <h4
                                 className="font-medium text-sm text-foreground truncate mb-1 leading-tight block"
@@ -149,7 +143,7 @@ export default function QueueDrawer({
                               >
                                 {file.name}
                               </h4>
-                              
+
                               <div className="flex items-center gap-3 text-xs text-default-500 flex-wrap">
                                 <div className="flex items-center gap-1 flex-shrink-0">
                                   <span className="text-[10px] opacity-60">💾</span>
