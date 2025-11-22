@@ -129,31 +129,20 @@ export default function QueueDrawer({
                           : 'hover:bg-default-50/80'
                       }`}
                     >
-                      <CardBody className="px-4 py-3 h-16 w-full min-w-0">
-                        <div className="flex items-center justify-between gap-3 h-full w-full min-w-0">
-                          <div className="flex items-center gap-3 flex-1 min-w-0 overflow-hidden">
-                            <div className="w-3 h-3 bg-gradient-to-br from-primary to-primary-600 rounded-full flex items-center justify-center flex-shrink-0">
-                              <span className="text-white text-[8px] font-bold">▶</span>
-                            </div>
+                      <CardBody className="px-3 py-2 w-full min-w-0">
+                        <div className="flex items-center justify-between gap-2 h-full w-full min-w-0">
+                          <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+                            <h4
+                              className="font-medium text-sm text-foreground truncate leading-tight block"
+                              title={file.name}
+                            >
+                              {file.name}
+                            </h4>
 
-                            <div className="flex-1 min-w-0 overflow-hidden">
-                              <h4
-                                className="font-medium text-sm text-foreground truncate mb-1 leading-tight block"
-                                title={file.name}
-                              >
-                                {file.name}
-                              </h4>
-
-                              <div className="flex items-center gap-3 text-xs text-default-500 flex-wrap">
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                  <span className="text-[10px] opacity-60">💾</span>
-                                  <span className="font-mono">{formatFileSize(file.size)}</span>
-                                </div>
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                  <span className="text-[10px] opacity-60">📅</span>
-                                  <span>{formatDate(file.modified)}</span>
-                                </div>
-                              </div>
+                            <div className="flex items-center gap-2 text-xs text-default-500 flex-wrap mt-0.5">
+                              <span className="font-mono">{formatFileSize(file.size)}</span>
+                              <span className="text-default-300">•</span>
+                              <span>{formatDate(file.modified)}</span>
                             </div>
                           </div>
 
@@ -162,9 +151,9 @@ export default function QueueDrawer({
                               size="sm"
                               color="primary"
                               variant="flat"
-                              className="text-[10px] px-2 py-1 h-5 flex-shrink-0"
+                              className="text-[10px] px-2 py-0 h-5 flex-shrink-0"
                             >
-                              ✓ Selected
+                              Selected
                             </Chip>
                           )}
                         </div>
