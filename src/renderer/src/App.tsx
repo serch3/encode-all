@@ -34,6 +34,9 @@ function App(): React.JSX.Element {
   const [renamePattern, setRenamePattern] = useState<string>('{name}_{codec}')
   const [outputDirectory, setOutputDirectory] = useState<string>('')
   const [threads, setThreads] = useState<number>(0)
+  const [trackSelection, setTrackSelection] = useState<string>('auto')
+  const [crf, setCrf] = useState<number>(23)
+  const [preset, setPreset] = useState<string>('medium')
 
   // Check FFmpeg installation on startup
   useEffect(() => {
@@ -166,6 +169,29 @@ function App(): React.JSX.Element {
                     <SelectItem key="av1_nvenc">AV1 (NVENC)</SelectItem>
                   </Select>
                   <Select
+                    label="Preset"
+                    selectedKeys={[preset]}
+                    onSelectionChange={(keys) => setPreset(Array.from(keys)[0] as string)}
+                    description="Speed vs Compression efficiency"
+                  >
+                    <SelectItem key="ultrafast">Ultrafast</SelectItem>
+                    <SelectItem key="superfast">Superfast</SelectItem>
+                    <SelectItem key="veryfast">Veryfast</SelectItem>
+                    <SelectItem key="faster">Faster</SelectItem>
+                    <SelectItem key="fast">Fast</SelectItem>
+                    <SelectItem key="medium">Medium</SelectItem>
+                    <SelectItem key="slow">Slow</SelectItem>
+                    <SelectItem key="slower">Slower</SelectItem>
+                    <SelectItem key="veryslow">Veryslow</SelectItem>
+                  </Select>
+                  <Input
+                    label="Quality (CRF)"
+                    type="number"
+                    value={crf.toString()}
+                    onChange={(e) => setCrf(parseInt(e.target.value) || 23)}
+                    description="0-51. Lower is better quality. 18-28 is good."
+                  />
+                  <Select
                     label="Audio Codec"
                     selectedKeys={[audioCodec]}
                     onSelectionChange={(keys) => setAudioCodec(Array.from(keys)[0] as string)}
@@ -197,7 +223,7 @@ function App(): React.JSX.Element {
                     type="number"
                     value={audioBitrate.toString()}
                     onChange={(e) => setAudioBitrate(parseInt(e.target.value) || 0)}
-                    description="Common: 96-192 music, 64-128 speech"
+                    description="Common: 256-320k (music), 192k (e.g, youtube)"
                     isDisabled={audioCodec === 'copy'}
                   />
                   <Input
@@ -208,6 +234,20 @@ function App(): React.JSX.Element {
                     description="Negative to reduce, positive to boost"
                     isDisabled={audioCodec === 'copy'}
                   />
+                  <Select
+                    label="Track Selection"
+                    selectedKeys={[trackSelection]}
+                    onSelectionChange={(keys) => setTrackSelection(Array.from(keys)[0] as string)}
+                    description={
+                      container !== 'mkv' && trackSelection === 'all'
+                        ? 'Some formats may not support all stream types'
+                        : 'Select which streams to include'
+                    }
+                  >
+                    <SelectItem key="auto">Auto (Best Video & Audio)</SelectItem>
+                    <SelectItem key="all_audio">All Audio Tracks</SelectItem>
+                    <SelectItem key="all">All Tracks (Audio/Video/Subs)</SelectItem>
+                  </Select>
                 </div>
                 <div className="flex flex-col gap-2">
                   <Input
@@ -244,6 +284,9 @@ function App(): React.JSX.Element {
                   audioChannels={audioChannels}
                   audioBitrate={audioBitrate}
                   volumeDb={volumeDb}
+                  trackSelection={trackSelection}
+                  crf={crf}
+                  preset={preset}
                 />
               </div>
             )}
