@@ -10,6 +10,7 @@ const api = {
     electronAPI.ipcRenderer.invoke('read-video-files', folderPath),
   // FFmpeg-related APIs
   checkFfmpeg: () => electronAPI.ipcRenderer.invoke('check-ffmpeg'),
+  checkNvidiaSupport: () => electronAPI.ipcRenderer.invoke('check-nvidia-support'),
   selectFfmpegPath: () => electronAPI.ipcRenderer.invoke('select-ffmpeg-path'),
   openExternal: (url: string) => electronAPI.ipcRenderer.invoke('open-external', url)
 }

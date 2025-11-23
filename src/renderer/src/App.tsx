@@ -18,6 +18,7 @@ function App(): React.JSX.Element {
   // FFmpeg setup state
   const [showFfmpegSetup, setShowFfmpegSetup] = useState<boolean>(false)
   const [ffmpegChecked, setFfmpegChecked] = useState<boolean>(false)
+  const [hasNvidiaGpu, setHasNvidiaGpu] = useState<boolean>(false)
 
   // Queue related state
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false)
@@ -38,13 +39,29 @@ function App(): React.JSX.Element {
   const [crf, setCrf] = useState<number>(23)
   const [preset, setPreset] = useState<string>('medium')
 
+  const isNvenc = videoCodec.includes('nvenc')
+
   // Check FFmpeg installation on startup
   useEffect(() => {
     const checkFFmpeg = async (): Promise<void> => {
       // use localStorage to remember if user has already been prompted
       const hasBeenChecked = localStorage.getItem('ffmpeg-checked')
+      
+      // Always check for NVIDIA support if FFmpeg is checked or we are about to check it
+      const checkNvidia = async (): Promise<void> => {
+        try {
+          const nvidiaSupported = await window.api?.checkNvidiaSupport()
+          if (nvidiaSupported) {
+            setHasNvidiaGpu(true)
+          }
+        } catch (e) {
+          console.error('Failed to check NVIDIA support', e)
+        }
+      }
+
       if (hasBeenChecked) {
         setFfmpegChecked(true)
+        void checkNvidia()
         return
       }
 
@@ -55,6 +72,7 @@ function App(): React.JSX.Element {
         } else {
           setFfmpegChecked(true)
           localStorage.setItem('ffmpeg-checked', 'true')
+          void checkNvidia()
         }
       } catch (error) {
         // Log error and show setup modal as fallback
@@ -163,10 +181,20 @@ function App(): React.JSX.Element {
                     selectedKeys={[videoCodec]}
                     onSelectionChange={(keys) => setVideoCodec(Array.from(keys)[0] as string)}
                   >
-                    <SelectItem key="libx264">H.264 (libx264)</SelectItem>
-                    <SelectItem key="libx265">H.265 (libx265)</SelectItem>
-                    <SelectItem key="libvpx-vp9">VP9 (libvpx-vp9)</SelectItem>
-                    <SelectItem key="av1_nvenc">AV1 (NVENC)</SelectItem>
+                    {[
+                      { key: 'libx264', label: 'H.264 (libx264)' },
+                      { key: 'libx265', label: 'H.265 (libx265)' },
+                      { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
+                      ...(hasNvidiaGpu
+                        ? [
+                            { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
+                            { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
+                            { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
+                          ]
+                        : [])
+                    ].map((codec) => (
+                      <SelectItem key={codec.key}>{codec.label}</SelectItem>
+                    ))}
                   </Select>
                   <Select
                     label="Preset"
@@ -185,11 +213,15 @@ function App(): React.JSX.Element {
                     <SelectItem key="veryslow">Veryslow</SelectItem>
                   </Select>
                   <Input
-                    label="Quality (CRF)"
+                    label={isNvenc ? 'Quality (CQ)' : 'Quality (CRF)'}
                     type="number"
                     value={crf.toString()}
                     onChange={(e) => setCrf(parseInt(e.target.value) || 23)}
-                    description="0-51. Lower is better quality. 18-28 is good."
+                    description={
+                      isNvenc
+                        ? '1-51. Lower is better quality.'
+                        : '0-51. Lower is better quality. 18-28 is good.'
+                    }
                   />
                   <Select
                     label="Audio Codec"
@@ -296,6 +328,7 @@ function App(): React.JSX.Element {
           <SettingsPage
             showFfmpegPreview={showFfmpegPreview}
             onShowFfmpegPreviewChange={setShowFfmpegPreview}
+            hasNvidiaGpu={hasNvidiaGpu}
           />
         )}
         {active === 'about' && <div>About this app…</div>}

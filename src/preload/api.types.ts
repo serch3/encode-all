@@ -14,6 +14,7 @@ export interface CustomAPI {
     path?: string
     error?: string
   }>
+  checkNvidiaSupport: () => Promise<boolean>
   selectFfmpegPath: () => Promise<string | null>
   openExternal: (url: string) => Promise<void>
 }

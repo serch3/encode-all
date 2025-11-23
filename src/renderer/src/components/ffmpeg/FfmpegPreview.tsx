@@ -34,8 +34,11 @@ export default function FfmpegPreview({
   preset = 'medium'
 }: FfmpegPreviewProps): React.JSX.Element {
   const generateFfmpegCommand = (): string => {
+    const isNvenc = videoCodec.includes('nvenc')
+    const qualityFlag = isNvenc ? '-cq' : '-crf'
+
     if (inputFiles.length === 0) {
-      return `ffmpeg -i input.mp4 -c:v ${videoCodec} -crf ${crf} -preset ${preset} -c:a ${audioCodec} output.${outputFormat}`
+      return `ffmpeg -i input.mp4 -c:v ${videoCodec} ${qualityFlag} ${crf} -preset ${preset} -c:a ${audioCodec} output.${outputFormat}`
     }
 
     // For batch preview, we only show the command for the FIRST file
@@ -58,7 +61,7 @@ export default function FfmpegPreview({
     }
     // 'auto' uses default ffmpeg selection (1 video, 1 audio, 1 sub usually)
 
-    const videoPart = `-c:v ${videoCodec} -crf ${crf} -preset ${preset}`
+    const videoPart = `-c:v ${videoCodec} ${qualityFlag} ${crf} -preset ${preset}`
     const audioPart = audioCodec === 'copy' ? '-c:a copy' : `-c:a ${audioCodec}`
     const channelPart =
       audioChannels !== 'same'

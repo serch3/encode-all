@@ -1,26 +1,35 @@
 import { Switch, cn, Card, CardBody, Button, Chip, Divider } from '@heroui/react'
 import { useState, useEffect } from 'react'
-import { CheckCircle, AlertCircle, RefreshCw, Settings as SettingsIcon } from 'lucide-react'
+import { CheckCircle, AlertCircle, RefreshCw, Settings as SettingsIcon, Cpu } from 'lucide-react'
 import type { FfmpegStatus } from '../../types'
 
 interface SettingsProps {
   showFfmpegPreview: boolean
   onShowFfmpegPreviewChange: (value: boolean) => void
+  hasNvidiaGpu: boolean
 }
 
 export default function SettingsPage({
   showFfmpegPreview,
-  onShowFfmpegPreviewChange
+  onShowFfmpegPreviewChange,
+  hasNvidiaGpu
 }: SettingsProps): React.JSX.Element {
   // FFmpeg status state
   const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus>({ isInstalled: false })
   const [isCheckingFfmpeg, setIsCheckingFfmpeg] = useState(false)
+  const [isCheckingNvidia, setIsCheckingNvidia] = useState(false)
+  const [nvidiaStatus, setNvidiaStatus] = useState<boolean>(hasNvidiaGpu)
 
   const checkFfmpegStatus = async (): Promise<void> => {
     setIsCheckingFfmpeg(true)
     try {
       const status = await window.api?.checkFfmpeg()
       setFfmpegStatus(status || { isInstalled: false, error: 'API not available' })
+      
+      // Also re-check NVIDIA support when checking FFmpeg
+      if (status?.isInstalled) {
+        checkNvidiaStatus()
+      }
     } catch (error) {
       setFfmpegStatus({
         isInstalled: false,
@@ -28,6 +37,19 @@ export default function SettingsPage({
       })
     } finally {
       setIsCheckingFfmpeg(false)
+    }
+  }
+
+  const checkNvidiaStatus = async (): Promise<void> => {
+    setIsCheckingNvidia(true)
+    try {
+      const supported = await window.api?.checkNvidiaSupport()
+      setNvidiaStatus(supported)
+    } catch (error) {
+      console.error('Failed to check NVIDIA support:', error)
+      setNvidiaStatus(false)
+    } finally {
+      setIsCheckingNvidia(false)
     }
   }
 
@@ -49,7 +71,9 @@ export default function SettingsPage({
 
   useEffect(() => {
     checkFfmpegStatus()
-  }, [])
+    // Sync local state with prop if it changes
+    setNvidiaStatus(hasNvidiaGpu)
+  }, [hasNvidiaGpu])
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Settings</h2>
@@ -108,8 +132,6 @@ export default function SettingsPage({
               </div>
             </div>
 
-            <Divider />
-
             {/* FFmpeg Actions */}
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="flat" onPress={handleSelectFfmpegPath}>
@@ -122,6 +144,42 @@ export default function SettingsPage({
               >
                 Download FFmpeg
               </Button>
+            </div>
+
+            <Divider />
+
+            {/* Hardware Acceleration Status */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Cpu className={`w-5 h-5 ${nvidiaStatus ? 'text-success' : 'text-default-400'}`} />
+                <div>
+                  <p className="font-medium">Hardware Acceleration</p>
+                  <p className="text-sm text-default-500">
+                    {nvidiaStatus 
+                      ? 'NVIDIA NVENC detected and enabled' 
+                      : 'No supported NVIDIA GPU detected'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  isIconOnly
+                  onPress={checkNvidiaStatus}
+                  isLoading={isCheckingNvidia}
+                  isDisabled={!ffmpegStatus.isInstalled}
+                >
+                  <RefreshCw className={`w-4 h-4 ${isCheckingNvidia ? 'animate-spin' : ''}`} />
+                </Button>
+                <Chip
+                  size="sm"
+                  color={nvidiaStatus ? 'success' : 'default'}
+                  variant="flat"
+                >
+                  {nvidiaStatus ? 'Active' : 'Inactive'}
+                </Chip>
+              </div>
             </div>
           </CardBody>
         </Card>

@@ -48,6 +48,22 @@ async function checkFfmpegInstallation(): Promise<{
 }
 
 /**
+ * Checks if NVIDIA NVENC encoding is supported by the installed FFmpeg.
+ *
+ * @returns Promise with boolean indicating support
+ */
+async function checkNvidiaSupport(): Promise<boolean> {
+  try {
+    // Check if ffmpeg lists nvenc encoders
+    const { stdout } = await execAsync('ffmpeg -hide_banner -encoders')
+    return stdout.includes('nvenc')
+  } catch (error) {
+    console.error('Failed to check NVIDIA support:', error)
+    return false
+  }
+}
+
+/**
  * Opens a file dialog to allow the user to select an FFmpeg executable.
  *
  * @returns Promise with the selected file path or null if cancelled
@@ -185,6 +201,10 @@ app.whenReady().then(() => {
   // FFmpeg-related IPC handlers
   ipcMain.handle('check-ffmpeg', async () => {
     return await checkFfmpegInstallation()
+  })
+
+  ipcMain.handle('check-nvidia-support', async () => {
+    return await checkNvidiaSupport()
   })
 
   ipcMain.handle('select-ffmpeg-path', async () => {
