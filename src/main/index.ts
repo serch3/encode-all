@@ -5,6 +5,8 @@ import { readdirSync, statSync } from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import icon from '../../resources/icon.png?asset'
+import { startEncoding, cancelEncoding } from './ffmpeg'
+import { EncodingOptions } from '../preload/api.types'
 
 const execAsync = promisify(exec)
 
@@ -213,6 +215,17 @@ app.whenReady().then(() => {
 
   ipcMain.handle('open-external', async (_, url: string) => {
     shell.openExternal(url)
+  })
+
+  ipcMain.handle('start-encoding', async (event, options: EncodingOptions) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (window) {
+      startEncoding(options, window)
+    }
+  })
+
+  ipcMain.handle('cancel-encoding', async () => {
+    cancelEncoding()
   })
 
   createWindow()

@@ -1,11 +1,11 @@
 import { Button, Card, CardBody, Input, Select, SelectItem } from '@heroui/react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Layout from './components/layout'
-import { SettingsPage } from './components/pages'
+import { SettingsPage, GeneralPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
 import { QueueDrawer } from './components/encoding'
 import { buildFilenameFromPattern } from './utils/pattern'
-import type { VideoFile, PatternTokens } from './types'
+import type { VideoFile, PatternTokens, EncodingOptions } from './types'
 
 function App(): React.JSX.Element {
   // for debugging purposes
@@ -13,7 +13,7 @@ function App(): React.JSX.Element {
   const [showFfmpegPreview, setShowFfmpegPreview] = useState<boolean>(false)
 
   // Main navigation state
-  const [active, setActive] = useState<'encode' | 'settings' | 'about'>('encode')
+  const [active, setActive] = useState<'general' | 'settings' | 'about'>('general')
 
   // FFmpeg setup state
   const [showFfmpegSetup, setShowFfmpegSetup] = useState<boolean>(false)
@@ -24,6 +24,12 @@ function App(): React.JSX.Element {
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false)
   const [videoFiles, setVideoFiles] = useState<VideoFile[]>([])
   const [selectedFiles, setSelectedFiles] = useState<VideoFile[]>([])
+
+  // Encoding state
+  const [encodingProgress, setEncodingProgress] = useState<number>(0)
+  const [encodingLogs, setEncodingLogs] = useState<string[]>([])
+  const [currentEncodingFile, setCurrentEncodingFile] = useState<string>('')
+  const [isEncoding, setIsEncoding] = useState<boolean>(false)
 
   // Encoding configuration state
   const [container, setContainer] = useState<string>('mkv')
@@ -40,6 +46,7 @@ function App(): React.JSX.Element {
   const [preset, setPreset] = useState<string>('medium')
 
   const isNvenc = videoCodec.includes('nvenc')
+  const isEncodingRef = useRef(false)
 
   // Check FFmpeg installation on startup
   useEffect(() => {
@@ -132,6 +139,115 @@ function App(): React.JSX.Element {
     setSelectedFiles([])
   }
 
+  const processQueue = async (): Promise<void> => {
+    isEncodingRef.current = true
+    setIsEncoding(true)
+    setEncodingLogs(['Starting encoding process...'])
+
+    for (const file of selectedFiles) {
+      if (!isEncodingRef.current) {
+        setEncodingLogs((prev) => [...prev, 'Queue processing stopped.'])
+        break
+      }
+
+      setCurrentEncodingFile(file.name)
+      setEncodingProgress(0)
+      setEncodingLogs((prev) => [...prev, `\nProcessing: ${file.name}`])
+
+      // Calculate output filename
+      const tokens: PatternTokens = {
+        name: file.name.substring(0, file.name.lastIndexOf('.')),
+        codec: videoCodec.replace('lib', ''),
+        ext: container
+      }
+      const outputFilename = buildFilenameFromPattern(renamePattern, tokens)
+      const outputPath = await window.api.pathJoin(outputDirectory, outputFilename)
+
+      const options: EncodingOptions = {
+        inputPath: file.path,
+        outputPath,
+        container,
+        videoCodec,
+        audioCodec,
+        audioChannels,
+        audioBitrate,
+        volumeDb,
+        crf,
+        preset,
+        threads,
+        trackSelection
+      }
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const removeComplete = window.api.onEncodingComplete(() => {
+            cleanup()
+            resolve()
+          })
+          const removeError = window.api.onEncodingError((err) => {
+            cleanup()
+            reject(new Error(err))
+          })
+
+          const cleanup = (): void => {
+            removeComplete()
+            removeError()
+          }
+
+          window.api.startEncoding(options)
+        })
+        setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        setEncodingLogs((prev) => [...prev, `Error encoding ${file.name}: ${msg}`])
+      }
+    }
+
+    setIsEncoding(false)
+    isEncodingRef.current = false
+    setEncodingLogs((prev) => [...prev, '\nAll tasks finished.'])
+  }
+
+  const handleStartEncoding = (): void => {
+    if (selectedFiles.length === 0) return
+    void processQueue()
+  }
+
+  const handleCancelEncoding = async (): Promise<void> => {
+    isEncodingRef.current = false
+    setIsEncoding(false)
+    await window.api.cancelEncoding()
+    setEncodingLogs((prev) => [...prev, 'Encoding cancelled by user.'])
+  }
+
+  // Listen for progress and logs
+  useEffect(() => {
+    const removeProgress = window.api.onEncodingProgress((p) => setEncodingProgress(p))
+    const removeLog = window.api.onEncodingLog((l) => {
+      setEncodingLogs((prev) => {
+        const newLogs = [...prev, l]
+        if (newLogs.length > 1000) return newLogs.slice(-1000)
+        return newLogs
+      })
+    })
+
+    return () => {
+      removeProgress()
+      removeLog()
+    }
+  }, [])
+
+  const handleSelectOutputDirectory = async (): Promise<void> => {
+    try {
+      const folderPath = await window.api.selectFolder()
+      if (folderPath) {
+        setOutputDirectory(folderPath)
+      }
+    } catch (error) {
+      console.error('Error selecting output directory:', error)
+    }
+  }
+
   // Generate preview of filename pattern
   const getPreviewFilename = (): string => {
     const tokens: PatternTokens = {
@@ -150,14 +266,24 @@ function App(): React.JSX.Element {
         onSelect={setActive}
         onOpenQueue={() => setIsQueueOpen(true)}
         queueStats={{ total: videoFiles.length, selected: selectedFiles.length }}
+        encodingProgress={encodingProgress}
+        currentEncodingFile={currentEncodingFile}
+        isEncoding={isEncoding}
       >
-        {active === 'encode' && (
+        {active === 'general' && (
+          <GeneralPage
+            encoderContent={
           <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
             <Card className="lg:col-span-2">
               <CardBody className="h-64 border-2 border-dashed border-foreground/20 rounded-xl flex items-center justify-center text-foreground/70">
                 <div className="text-center">
                   <p className="mb-4">Drag & drop files here</p>
-                  <Button color="primary" variant="flat" onPress={handleSelectFolder}>
+                  <Button
+                    color="primary"
+                    variant="flat"
+                    onPress={handleSelectFolder}
+                    isDisabled={isEncoding}
+                  >
                     Or select folder
                   </Button>
                 </div>
@@ -170,6 +296,7 @@ function App(): React.JSX.Element {
                     label="Container"
                     selectedKeys={[container]}
                     onSelectionChange={(keys) => setContainer(Array.from(keys)[0] as string)}
+                    isDisabled={isEncoding}
                   >
                     <SelectItem key="mp4">MP4</SelectItem>
                     <SelectItem key="mkv">MKV</SelectItem>
@@ -180,6 +307,7 @@ function App(): React.JSX.Element {
                     label="Video Codec"
                     selectedKeys={[videoCodec]}
                     onSelectionChange={(keys) => setVideoCodec(Array.from(keys)[0] as string)}
+                    isDisabled={isEncoding}
                   >
                     {[
                       { key: 'libx264', label: 'H.264 (libx264)' },
@@ -201,6 +329,7 @@ function App(): React.JSX.Element {
                     selectedKeys={[preset]}
                     onSelectionChange={(keys) => setPreset(Array.from(keys)[0] as string)}
                     description="Speed vs Compression efficiency"
+                    isDisabled={isEncoding}
                   >
                     <SelectItem key="ultrafast">Ultrafast</SelectItem>
                     <SelectItem key="superfast">Superfast</SelectItem>
@@ -222,11 +351,13 @@ function App(): React.JSX.Element {
                         ? '1-51. Lower is better quality.'
                         : '0-51. Lower is better quality. 18-28 is good.'
                     }
+                    isDisabled={isEncoding}
                   />
                   <Select
                     label="Audio Codec"
                     selectedKeys={[audioCodec]}
                     onSelectionChange={(keys) => setAudioCodec(Array.from(keys)[0] as string)}
+                    isDisabled={isEncoding}
                   >
                     <SelectItem key="aac">AAC</SelectItem>
                     <SelectItem key="copy">Copy</SelectItem>
@@ -238,12 +369,13 @@ function App(): React.JSX.Element {
                     value={threads.toString()}
                     onChange={(e) => setThreads(parseInt(e.target.value) || 0)}
                     description="0 = auto"
+                    isDisabled={isEncoding}
                   />
                   <Select
                     label="Audio Channels"
                     selectedKeys={[audioChannels]}
                     onSelectionChange={(keys) => setAudioChannels(Array.from(keys)[0] as string)}
-                    isDisabled={audioCodec === 'copy'}
+                    isDisabled={audioCodec === 'copy' || isEncoding}
                   >
                     <SelectItem key="same">Same</SelectItem>
                     <SelectItem key="mono">Mono</SelectItem>
@@ -256,7 +388,7 @@ function App(): React.JSX.Element {
                     value={audioBitrate.toString()}
                     onChange={(e) => setAudioBitrate(parseInt(e.target.value) || 0)}
                     description="Common: 256-320k (music), 192k (e.g, youtube)"
-                    isDisabled={audioCodec === 'copy'}
+                    isDisabled={audioCodec === 'copy' || isEncoding}
                   />
                   <Input
                     label="Volume Adjust (dB)"
@@ -264,7 +396,7 @@ function App(): React.JSX.Element {
                     value={volumeDb.toString()}
                     onChange={(e) => setVolumeDb(parseFloat(e.target.value) || 0)}
                     description="Negative to reduce, positive to boost"
-                    isDisabled={audioCodec === 'copy'}
+                    isDisabled={audioCodec === 'copy' || isEncoding}
                   />
                   <Select
                     label="Track Selection"
@@ -275,6 +407,7 @@ function App(): React.JSX.Element {
                         ? 'Some formats may not support all stream types'
                         : 'Select which streams to include'
                     }
+                    isDisabled={isEncoding}
                   >
                     <SelectItem key="auto">Auto (Best Video & Audio)</SelectItem>
                     <SelectItem key="all_audio">All Audio Tracks</SelectItem>
@@ -282,24 +415,40 @@ function App(): React.JSX.Element {
                   </Select>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Input
-                    label="Output directory"
-                    placeholder="Choose folder..."
-                    readOnly
-                    value={outputDirectory}
-                    onChange={(e) => setOutputDirectory(e.target.value)}
-                  />
+                  <div className="flex gap-2 items-end">
+                    <Input
+                      label="Output directory"
+                      placeholder="Same as input (default)"
+                      readOnly
+                      value={outputDirectory}
+                      className="flex-1"
+                      isDisabled={isEncoding}
+                    />
+                    <Button
+                      variant="flat"
+                      onPress={handleSelectOutputDirectory}
+                      className="h-14"
+                      isDisabled={isEncoding}
+                    >
+                      Browse
+                    </Button>
+                  </div>
                   <Input
                     label="Rename pattern"
                     placeholder="e.g. {name}_{codec}"
                     value={renamePattern}
                     onChange={(e) => setRenamePattern(e.target.value)}
                     description="Tokens: {name} {codec} {ext}"
+                    isDisabled={isEncoding}
                   />
                   <div className="text-xs text-foreground/60">Preview: {getPreviewFilename()}</div>
                 </div>
-                <Button color="primary" isDisabled={!ffmpegChecked}>
-                  Start Encoding
+                <Button
+                  color="primary"
+                  isDisabled={!ffmpegChecked || selectedFiles.length === 0 || isEncoding}
+                  onPress={handleStartEncoding}
+                >
+                  {isEncoding ? 'Encoding in Progress...' : 'Start Encoding'}
                 </Button>
               </CardBody>
             </Card>
@@ -323,6 +472,11 @@ function App(): React.JSX.Element {
               </div>
             )}
           </div>
+            }
+            logs={encodingLogs}
+            onCancel={handleCancelEncoding}
+            isEncoding={isEncoding}
+          />
         )}
         {active === 'settings' && (
           <SettingsPage
@@ -342,6 +496,11 @@ function App(): React.JSX.Element {
         selectedFiles={selectedFiles}
         onSelectAll={handleSelectAll}
         onClearSelection={handleClearSelection}
+        onEncode={() => {
+          setIsQueueOpen(false)
+          handleStartEncoding()
+        }}
+        isEncoding={isEncoding}
       />
 
       <FfmpegSetup

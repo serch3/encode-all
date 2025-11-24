@@ -58,3 +58,18 @@ export interface EncodingConfig {
   outputDirectory: string
   renamePattern: string
 }
+
+export interface EncodingOptions {
+  inputPath: string
+  outputPath: string
+  container: string
+  videoCodec: string
+  audioCodec: string
+  audioChannels: string
+  audioBitrate: number
+  volumeDb: number
+  crf: number
+  preset: string
+  threads: number
+  trackSelection: string
+}

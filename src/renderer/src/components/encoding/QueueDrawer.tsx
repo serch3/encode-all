@@ -22,6 +22,8 @@ interface QueueDrawerProps {
   selectedFiles?: VideoFile[]
   onSelectAll?: () => void
   onClearSelection?: () => void
+  onEncode?: () => void
+  isEncoding?: boolean
 }
 
 export default function QueueDrawer({
@@ -31,7 +33,9 @@ export default function QueueDrawer({
   onSelectFile,
   selectedFiles = [],
   onSelectAll,
-  onClearSelection
+  onClearSelection,
+  onEncode,
+  isEncoding
 }: QueueDrawerProps): React.JSX.Element {
   const formatFileSize = (bytes: number): string => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
@@ -172,8 +176,15 @@ export default function QueueDrawer({
               Close
             </Button>
             {selectedFiles.length > 0 && (
-              <Button color="primary" className="flex-1">
-                Encode {selectedFiles.length} file{selectedFiles.length !== 1 ? 's' : ''}
+              <Button
+                color="primary"
+                className="flex-1"
+                onPress={onEncode}
+                isDisabled={isEncoding}
+              >
+                {isEncoding
+                  ? 'Encoding...'
+                  : `Encode ${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''}`}
               </Button>
             )}
           </div>
