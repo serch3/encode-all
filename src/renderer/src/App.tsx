@@ -266,9 +266,6 @@ function App(): React.JSX.Element {
         onSelect={setActive}
         onOpenQueue={() => setIsQueueOpen(true)}
         queueStats={{ total: videoFiles.length, selected: selectedFiles.length }}
-        encodingProgress={encodingProgress}
-        currentEncodingFile={currentEncodingFile}
-        isEncoding={isEncoding}
       >
         {active === 'general' && (
           <GeneralPage
@@ -476,6 +473,8 @@ function App(): React.JSX.Element {
             logs={encodingLogs}
             onCancel={handleCancelEncoding}
             isEncoding={isEncoding}
+            encodingProgress={encodingProgress}
+            currentEncodingFile={currentEncodingFile}
           />
         )}
         {active === 'settings' && (
