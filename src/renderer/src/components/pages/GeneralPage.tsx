@@ -59,7 +59,7 @@ export default function GeneralPage({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="absolute bottom-4 right-4 left-4 md:left-auto md:w-96 z-50 cursor-pointer"
+            className="fixed bottom-4 right-4 left-4 md:left-auto md:w-96 z-50 cursor-pointer"
             onClick={handleToastClick}
           >
             <Card 
