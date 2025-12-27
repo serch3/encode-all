@@ -55,7 +55,7 @@ function App(): React.JSX.Element {
     const checkFFmpeg = async (): Promise<void> => {
       // use localStorage to remember if user has already been prompted
       const hasBeenChecked = localStorage.getItem('ffmpeg-checked')
-      
+
       // Always check for NVIDIA support if FFmpeg is checked or we are about to check it
       const checkNvidia = async (): Promise<void> => {
         try {
@@ -165,7 +165,7 @@ function App(): React.JSX.Element {
       const finalFilename = outputFilename.toLowerCase().endsWith(`.${container.toLowerCase()}`)
         ? outputFilename
         : `${outputFilename}.${container}`
-      
+
       // Determine output directory: use selected directory or fallback to input file's directory
       let targetDir = outputDirectory
       if (!targetDir) {
@@ -175,7 +175,7 @@ function App(): React.JSX.Element {
 
       const outputPath = await window.api.pathJoin(targetDir, finalFilename)
 
-      const options: EncodingOptions = {
+      const options = {
         inputPath: file.path,
         outputPath,
         container,
@@ -189,7 +189,7 @@ function App(): React.JSX.Element {
         threads,
         trackSelection,
         ffmpegPath
-      }
+      } as EncodingOptions
 
       try {
         await new Promise<void>((resolve, reject) => {
@@ -202,19 +202,19 @@ function App(): React.JSX.Element {
             reject(new Error(err))
           })
 
-        
-        setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
-        
-        // Remove from queue and selection upon success
-        setVideoFiles((prev) => prev.filter((f) => f.path !== file.path))
-        setSelectedFiles((prev) => prev.filter((f) => f.path !== file.path)
+          const cleanup = (): void => {
             removeComplete()
             removeError()
           }
 
           window.api.startEncoding(options)
         })
+
         setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
+
+        // Remove from queue and selection upon success
+        setVideoFiles((prev) => prev.filter((f) => f.path !== file.path))
+        setSelectedFiles((prev) => prev.filter((f) => f.path !== file.path))
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
         setEncodingLogs((prev) => [...prev, `Error encoding ${file.name}: ${msg}`])
@@ -226,16 +226,16 @@ function App(): React.JSX.Element {
     }
 
     setIsEncoding(false)
-    // Only clear isEncodingRef if we finished normally or cancelled, 
+    // Only clear isEncodingRef if we finished normally or cancelled,
     // but we already set it to false in catch block if error.
     // If we finished loop normally:
     if (isEncodingRef.current) {
-       isEncodingRef.current = false
-       setEncodingLogs((prev) => [...prev, '\nAll tasks finished.'])
+      isEncodingRef.current = false
+      setEncodingLogs((prev) => [...prev, '\nAll tasks finished.'])
     } else if (encodingError) {
-       setEncodingLogs((prev) => [...prev, '\nQueue stopped due to error.'])
+      setEncodingLogs((prev) => [...prev, '\nQueue stopped due to error.'])
     } else {
-       setEncodingLogs((prev) => [...prev, '\nQueue stopped.'])
+      setEncodingLogs((prev) => [...prev, '\nQueue stopped.'])
     }
   }
 
@@ -301,208 +301,214 @@ function App(): React.JSX.Element {
         {active === 'general' && (
           <GeneralPage
             encoderContent={
-          <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
-              <CardBody className="h-64 border-2 border-dashed border-foreground/20 rounded-xl flex items-center justify-center text-foreground/70">
-                <div className="text-center">
-                  <p className="mb-4">Drag & drop files here</p>
-                  <Button
-                    color="primary"
-                    variant="flat"
-                    onPress={handleSelectFolder}
-                    isDisabled={isEncoding}
-                  >
-                    Or select folder
-                  </Button>
-                </div>
-              </CardBody>
-            </Card>
-            <Card>
-              <CardBody className="flex flex-col gap-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <Select
-                    label="Container"
-                    selectedKeys={[container]}
-                    onSelectionChange={(keys) => setContainer(Array.from(keys)[0] as string)}
-                    isDisabled={isEncoding}
-                  >
-                    <SelectItem key="mp4">MP4</SelectItem>
-                    <SelectItem key="mkv">MKV</SelectItem>
-                    <SelectItem key="webm">WebM</SelectItem>
-                    <SelectItem key="mov">MOV</SelectItem>
-                  </Select>
-                  <Select
-                    label="Video Codec"
-                    selectedKeys={[videoCodec]}
-                    onSelectionChange={(keys) => setVideoCodec(Array.from(keys)[0] as string)}
-                    isDisabled={isEncoding}
-                  >
-                    {[
-                      { key: 'libx264', label: 'H.264 (libx264)' },
-                      { key: 'libx265', label: 'H.265 (libx265)' },
-                      { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
-                      ...(hasNvidiaGpu
-                        ? [
-                            { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
-                            { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
-                            { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
-                          ]
-                        : [])
-                    ].map((codec) => (
-                      <SelectItem key={codec.key}>{codec.label}</SelectItem>
-                    ))}
-                  </Select>
-                  <Select
-                    label="Preset"
-                    selectedKeys={[preset]}
-                    onSelectionChange={(keys) => setPreset(Array.from(keys)[0] as string)}
-                    description="Speed vs Compression efficiency"
-                    isDisabled={isEncoding}
-                  >
-                    <SelectItem key="ultrafast">Ultrafast</SelectItem>
-                    <SelectItem key="superfast">Superfast</SelectItem>
-                    <SelectItem key="veryfast">Veryfast</SelectItem>
-                    <SelectItem key="faster">Faster</SelectItem>
-                    <SelectItem key="fast">Fast</SelectItem>
-                    <SelectItem key="medium">Medium</SelectItem>
-                    <SelectItem key="slow">Slow</SelectItem>
-                    <SelectItem key="slower">Slower</SelectItem>
-                    <SelectItem key="veryslow">Veryslow</SelectItem>
-                  </Select>
-                  <Input
-                    label={isNvenc ? 'Quality (CQ)' : 'Quality (CRF)'}
-                    type="number"
-                    value={crf.toString()}
-                    onChange={(e) => setCrf(parseInt(e.target.value) || 23)}
-                    description={
-                      isNvenc
-                        ? '1-51. Lower is better quality.'
-                        : '0-51. Lower is better quality. 18-28 is good.'
-                    }
-                    isDisabled={isEncoding}
-                  />
-                  <Select
-                    label="Audio Codec"
-                    selectedKeys={[audioCodec]}
-                    onSelectionChange={(keys) => setAudioCodec(Array.from(keys)[0] as string)}
-                    isDisabled={isEncoding}
-                  >
-                    <SelectItem key="aac">AAC</SelectItem>
-                    <SelectItem key="copy">Copy</SelectItem>
-                    <SelectItem key="libopus">Opus</SelectItem>
-                  </Select>
-                  <Input
-                    label="Threads"
-                    type="number"
-                    value={threads.toString()}
-                    onChange={(e) => setThreads(parseInt(e.target.value) || 0)}
-                    description="0 = auto"
-                    isDisabled={isEncoding}
-                  />
-                  <Select
-                    label="Audio Channels"
-                    selectedKeys={[audioChannels]}
-                    onSelectionChange={(keys) => setAudioChannels(Array.from(keys)[0] as string)}
-                    isDisabled={audioCodec === 'copy' || isEncoding}
-                  >
-                    <SelectItem key="same">Same</SelectItem>
-                    <SelectItem key="mono">Mono</SelectItem>
-                    <SelectItem key="stereo">Stereo</SelectItem>
-                    <SelectItem key="5.1">5.1</SelectItem>
-                  </Select>
-                  <Input
-                    label="Audio Bitrate (kbps)"
-                    type="number"
-                    value={audioBitrate.toString()}
-                    onChange={(e) => setAudioBitrate(parseInt(e.target.value) || 0)}
-                    description="Common: 256-320k (music), 192k (e.g, youtube)"
-                    isDisabled={audioCodec === 'copy' || isEncoding}
-                  />
-                  <Input
-                    label="Volume Adjust (dB)"
-                    type="number"
-                    value={volumeDb.toString()}
-                    onChange={(e) => setVolumeDb(parseFloat(e.target.value) || 0)}
-                    description="Negative to reduce, positive to boost"
-                    isDisabled={audioCodec === 'copy' || isEncoding}
-                  />
-                  <Select
-                    label="Track Selection"
-                    selectedKeys={[trackSelection]}
-                    onSelectionChange={(keys) => setTrackSelection(Array.from(keys)[0] as string)}
-                    description={
-                      container !== 'mkv' && trackSelection === 'all'
-                        ? 'Some formats may not support all stream types'
-                        : 'Select which streams to include'
-                    }
-                    isDisabled={isEncoding}
-                  >
-                    <SelectItem key="auto">Auto (Best Video & Audio)</SelectItem>
-                    <SelectItem key="all_audio">All Audio Tracks</SelectItem>
-                    <SelectItem key="all">All Tracks (Audio/Video/Subs)</SelectItem>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <div className="flex gap-2 items-end">
-                    <Input
-                      label="Output directory"
-                      placeholder="Same as input (default)"
-                      readOnly
-                      value={outputDirectory}
-                      className="flex-1"
-                      isDisabled={isEncoding}
-                    />
+              <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
+                <Card className="lg:col-span-2">
+                  <CardBody className="h-64 border-2 border-dashed border-foreground/20 rounded-xl flex items-center justify-center text-foreground/70">
+                    <div className="text-center">
+                      <p className="mb-4">Drag & drop files here</p>
+                      <Button
+                        color="primary"
+                        variant="flat"
+                        onPress={handleSelectFolder}
+                        isDisabled={isEncoding}
+                      >
+                        Or select folder
+                      </Button>
+                    </div>
+                  </CardBody>
+                </Card>
+                <Card>
+                  <CardBody className="flex flex-col gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <Select
+                        label="Container"
+                        selectedKeys={[container]}
+                        onSelectionChange={(keys) => setContainer(Array.from(keys)[0] as string)}
+                        isDisabled={isEncoding}
+                      >
+                        <SelectItem key="mp4">MP4</SelectItem>
+                        <SelectItem key="mkv">MKV</SelectItem>
+                        <SelectItem key="webm">WebM</SelectItem>
+                        <SelectItem key="mov">MOV</SelectItem>
+                      </Select>
+                      <Select
+                        label="Video Codec"
+                        selectedKeys={[videoCodec]}
+                        onSelectionChange={(keys) => setVideoCodec(Array.from(keys)[0] as string)}
+                        isDisabled={isEncoding}
+                      >
+                        {[
+                          { key: 'libx264', label: 'H.264 (libx264)' },
+                          { key: 'libx265', label: 'H.265 (libx265)' },
+                          { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
+                          ...(hasNvidiaGpu
+                            ? [
+                                { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
+                                { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
+                                { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
+                              ]
+                            : [])
+                        ].map((codec) => (
+                          <SelectItem key={codec.key}>{codec.label}</SelectItem>
+                        ))}
+                      </Select>
+                      <Select
+                        label="Preset"
+                        selectedKeys={[preset]}
+                        onSelectionChange={(keys) => setPreset(Array.from(keys)[0] as string)}
+                        description="Speed vs Compression efficiency"
+                        isDisabled={isEncoding}
+                      >
+                        <SelectItem key="ultrafast">Ultrafast</SelectItem>
+                        <SelectItem key="superfast">Superfast</SelectItem>
+                        <SelectItem key="veryfast">Veryfast</SelectItem>
+                        <SelectItem key="faster">Faster</SelectItem>
+                        <SelectItem key="fast">Fast</SelectItem>
+                        <SelectItem key="medium">Medium</SelectItem>
+                        <SelectItem key="slow">Slow</SelectItem>
+                        <SelectItem key="slower">Slower</SelectItem>
+                        <SelectItem key="veryslow">Veryslow</SelectItem>
+                      </Select>
+                      <Input
+                        label={isNvenc ? 'Quality (CQ)' : 'Quality (CRF)'}
+                        type="number"
+                        value={crf.toString()}
+                        onChange={(e) => setCrf(parseInt(e.target.value) || 23)}
+                        description={
+                          isNvenc
+                            ? '1-51. Lower is better quality.'
+                            : '0-51. Lower is better quality. 18-28 is good.'
+                        }
+                        isDisabled={isEncoding}
+                      />
+                      <Select
+                        label="Audio Codec"
+                        selectedKeys={[audioCodec]}
+                        onSelectionChange={(keys) => setAudioCodec(Array.from(keys)[0] as string)}
+                        isDisabled={isEncoding}
+                      >
+                        <SelectItem key="aac">AAC</SelectItem>
+                        <SelectItem key="copy">Copy</SelectItem>
+                        <SelectItem key="libopus">Opus</SelectItem>
+                      </Select>
+                      <Input
+                        label="Threads"
+                        type="number"
+                        value={threads.toString()}
+                        onChange={(e) => setThreads(parseInt(e.target.value) || 0)}
+                        description="0 = auto"
+                        isDisabled={isEncoding}
+                      />
+                      <Select
+                        label="Audio Channels"
+                        selectedKeys={[audioChannels]}
+                        onSelectionChange={(keys) =>
+                          setAudioChannels(Array.from(keys)[0] as string)
+                        }
+                        isDisabled={audioCodec === 'copy' || isEncoding}
+                      >
+                        <SelectItem key="same">Same</SelectItem>
+                        <SelectItem key="mono">Mono</SelectItem>
+                        <SelectItem key="stereo">Stereo</SelectItem>
+                        <SelectItem key="5.1">5.1</SelectItem>
+                      </Select>
+                      <Input
+                        label="Audio Bitrate (kbps)"
+                        type="number"
+                        value={audioBitrate.toString()}
+                        onChange={(e) => setAudioBitrate(parseInt(e.target.value) || 0)}
+                        description="Common: 256-320k (music), 192k (e.g, youtube)"
+                        isDisabled={audioCodec === 'copy' || isEncoding}
+                      />
+                      <Input
+                        label="Volume Adjust (dB)"
+                        type="number"
+                        value={volumeDb.toString()}
+                        onChange={(e) => setVolumeDb(parseFloat(e.target.value) || 0)}
+                        description="Negative to reduce, positive to boost"
+                        isDisabled={audioCodec === 'copy' || isEncoding}
+                      />
+                      <Select
+                        label="Track Selection"
+                        selectedKeys={[trackSelection]}
+                        onSelectionChange={(keys) =>
+                          setTrackSelection(Array.from(keys)[0] as string)
+                        }
+                        description={
+                          container !== 'mkv' && trackSelection === 'all'
+                            ? 'Some formats may not support all stream types'
+                            : 'Select which streams to include'
+                        }
+                        isDisabled={isEncoding}
+                      >
+                        <SelectItem key="auto">Auto (Best Video & Audio)</SelectItem>
+                        <SelectItem key="all_audio">All Audio Tracks</SelectItem>
+                        <SelectItem key="all">All Tracks (Audio/Video/Subs)</SelectItem>
+                      </Select>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex gap-2 items-end">
+                        <Input
+                          label="Output directory"
+                          placeholder="Same as input (default)"
+                          readOnly
+                          value={outputDirectory}
+                          className="flex-1"
+                          isDisabled={isEncoding}
+                        />
+                        <Button
+                          variant="flat"
+                          onPress={handleSelectOutputDirectory}
+                          className="h-14"
+                          isDisabled={isEncoding}
+                        >
+                          Browse
+                        </Button>
+                      </div>
+                      <Input
+                        label="Rename pattern"
+                        placeholder="e.g. {name}_{codec}"
+                        value={renamePattern}
+                        onChange={(e) => setRenamePattern(e.target.value)}
+                        description="Tokens: {name} {codec} {ext}"
+                        isDisabled={isEncoding}
+                      />
+                      <div className="text-xs text-foreground/60">
+                        Preview: {getPreviewFilename()}
+                      </div>
+                    </div>
                     <Button
-                      variant="flat"
-                      onPress={handleSelectOutputDirectory}
-                      className="h-14"
-                      isDisabled={isEncoding}
+                      color="primary"
+                      isDisabled={!ffmpegChecked || selectedFiles.length === 0 || isEncoding}
+                      onPress={handleStartEncoding}
                     >
-                      Browse
+                      {isEncoding ? 'Encoding in Progress...' : 'Start Encoding'}
                     </Button>
+                  </CardBody>
+                </Card>
+                {showFfmpegPreview && (
+                  <div className="lg:col-span-3">
+                    <FfmpegPreview
+                      outputFormat={container}
+                      outputDirectory={outputDirectory}
+                      regexPattern={renamePattern}
+                      threads={threads}
+                      inputFiles={selectedFiles.map((f) => f.path)}
+                      videoCodec={videoCodec}
+                      encodingError={encodingError}
+                      onClearError={() => setEncodingError(null)}
+                      audioCodec={audioCodec}
+                      audioChannels={audioChannels}
+                      audioBitrate={audioBitrate}
+                      volumeDb={volumeDb}
+                      trackSelection={trackSelection}
+                      crf={crf}
+                      preset={preset}
+                      ffmpegPath={ffmpegPath}
+                    />
                   </div>
-                  <Input
-                    label="Rename pattern"
-                    placeholder="e.g. {name}_{codec}"
-                    value={renamePattern}
-                    onChange={(e) => setRenamePattern(e.target.value)}
-                    description="Tokens: {name} {codec} {ext}"
-                    isDisabled={isEncoding}
-                  />
-                  <div className="text-xs text-foreground/60">Preview: {getPreviewFilename()}</div>
-                </div>
-                <Button
-                  color="primary"
-                  isDisabled={!ffmpegChecked || selectedFiles.length === 0 || isEncoding}
-                  onPress={handleStartEncoding}
-                >
-                  {isEncoding ? 'Encoding in Progress...' : 'Start Encoding'}
-                </Button>
-              </CardBody>
-            </Card>
-            {showFfmpegPreview && (
-              <div className="lg:col-span-3">
-                <FfmpegPreview
-                  outputFormat={container}
-                  outputDirectory={outputDirectory}
-                  regexPattern={renamePattern}
-                  threads={threads}
-                  inputFiles={selectedFiles.map((f) => f.path)}
-                  videoCodec={videoCodec}
-            encodingError={encodingError}
-            onClearError={() => setEncodingError(null)}
-                  audioCodec={audioCodec}
-                  audioChannels={audioChannels}
-                  audioBitrate={audioBitrate}
-                  volumeDb={volumeDb}
-                  trackSelection={trackSelection}
-                  crf={crf}
-                  preset={preset}
-                  ffmpegPath={ffmpegPath}
-                />
+                )}
               </div>
-            )}
-          </div>
             }
             logs={encodingLogs}
             onCancel={handleCancelEncoding}

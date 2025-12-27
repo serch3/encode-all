@@ -176,12 +176,7 @@ export default function QueueDrawer({
               Close
             </Button>
             {selectedFiles.length > 0 && (
-              <Button
-                color="primary"
-                className="flex-1"
-                onPress={onEncode}
-                isDisabled={isEncoding}
-              >
+              <Button color="primary" className="flex-1" onPress={onEncode} isDisabled={isEncoding}>
                 {isEncoding
                   ? 'Encoding...'
                   : `Encode ${selectedFiles.length} file${selectedFiles.length !== 1 ? 's' : ''}`}

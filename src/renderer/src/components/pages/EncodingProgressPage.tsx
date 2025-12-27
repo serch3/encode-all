@@ -80,4 +80,3 @@ const EncodingProgressPage = ({
 }
 
 export default EncodingProgressPage
-

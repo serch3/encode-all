@@ -1,5 +1,5 @@
 import { Switch, cn, Card, CardBody, Button, Chip, Divider } from '@heroui/react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { CheckCircle, AlertCircle, RefreshCw, Settings as SettingsIcon, Cpu } from 'lucide-react'
 import type { FfmpegStatus } from '../../types'
 
@@ -20,12 +20,25 @@ export default function SettingsPage({
   const [isCheckingNvidia, setIsCheckingNvidia] = useState(false)
   const [nvidiaStatus, setNvidiaStatus] = useState<boolean>(hasNvidiaGpu)
 
-  const checkFfmpegStatus = async (): Promise<void> => {
+  const checkNvidiaStatus = useCallback(async (): Promise<void> => {
+    setIsCheckingNvidia(true)
+    try {
+      const supported = await window.api?.checkNvidiaSupport()
+      setNvidiaStatus(supported)
+    } catch (error) {
+      console.error('Failed to check NVIDIA support:', error)
+      setNvidiaStatus(false)
+    } finally {
+      setIsCheckingNvidia(false)
+    }
+  }, [])
+
+  const checkFfmpegStatus = useCallback(async (): Promise<void> => {
     setIsCheckingFfmpeg(true)
     try {
       const status = await window.api?.checkFfmpeg()
       setFfmpegStatus(status || { isInstalled: false, error: 'API not available' })
-      
+
       // Also re-check NVIDIA support when checking FFmpeg
       if (status?.isInstalled) {
         checkNvidiaStatus()
@@ -38,20 +51,7 @@ export default function SettingsPage({
     } finally {
       setIsCheckingFfmpeg(false)
     }
-  }
-
-  const checkNvidiaStatus = async (): Promise<void> => {
-    setIsCheckingNvidia(true)
-    try {
-      const supported = await window.api?.checkNvidiaSupport()
-      setNvidiaStatus(supported)
-    } catch (error) {
-      console.error('Failed to check NVIDIA support:', error)
-      setNvidiaStatus(false)
-    } finally {
-      setIsCheckingNvidia(false)
-    }
-  }
+  }, [checkNvidiaStatus])
 
   const handleSelectFfmpegPath = async (): Promise<void> => {
     try {
@@ -73,7 +73,7 @@ export default function SettingsPage({
     checkFfmpegStatus()
     // Sync local state with prop if it changes
     setNvidiaStatus(hasNvidiaGpu)
-  }, [hasNvidiaGpu])
+  }, [hasNvidiaGpu, checkFfmpegStatus])
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Settings</h2>
@@ -155,8 +155,8 @@ export default function SettingsPage({
                 <div>
                   <p className="font-medium">Hardware Acceleration</p>
                   <p className="text-sm text-default-500">
-                    {nvidiaStatus 
-                      ? 'NVIDIA NVENC detected and enabled' 
+                    {nvidiaStatus
+                      ? 'NVIDIA NVENC detected and enabled'
                       : 'No supported NVIDIA GPU detected'}
                   </p>
                 </div>
@@ -172,11 +172,7 @@ export default function SettingsPage({
                 >
                   <RefreshCw className={`w-4 h-4 ${isCheckingNvidia ? 'animate-spin' : ''}`} />
                 </Button>
-                <Chip
-                  size="sm"
-                  color={nvidiaStatus ? 'success' : 'default'}
-                  variant="flat"
-                >
+                <Chip size="sm" color={nvidiaStatus ? 'success' : 'default'} variant="flat">
                   {nvidiaStatus ? 'Active' : 'Inactive'}
                 </Chip>
               </div>

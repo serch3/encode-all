@@ -7,11 +7,7 @@ interface OutputPageProps {
   isEncoding: boolean
 }
 
-const OutputPage = ({
-  logs,
-  onCancel,
-  isEncoding
-}: OutputPageProps): React.JSX.Element => {
+const OutputPage = ({ logs, onCancel, isEncoding }: OutputPageProps): React.JSX.Element => {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom of logs

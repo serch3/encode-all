@@ -48,7 +48,7 @@ export default function FfmpegPreview({
     // to avoid confusion about how batch processing works (it's 1:1, not N:1)
     const firstFile = inputFiles[0]
     const inputArgs = `-i "${firstFile}"`
-    
+
     let mapPart = ''
     let subtitlePart = ''
 

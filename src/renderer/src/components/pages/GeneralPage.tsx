@@ -62,41 +62,49 @@ export default function GeneralPage({
             className="fixed bottom-4 right-4 left-4 md:left-auto md:w-96 z-50 cursor-pointer"
             onClick={handleToastClick}
           >
-            <Card 
+            <Card
               className={`${
-                encodingError 
-                  ? 'bg-danger-50/90 border-danger-200 dark:bg-danger-900/20 dark:border-danger-500/30' 
+                encodingError
+                  ? 'bg-danger-50/90 border-danger-200 dark:bg-danger-900/20 dark:border-danger-500/30'
                   : 'bg-content1/90 border-white/10'
               } backdrop-blur-md shadow-lg border`}
             >
               <CardBody className="gap-2">
                 <div className="flex justify-between items-center">
-                  <span className={`text-xs font-medium uppercase tracking-wider ${
-                    encodingError ? 'text-danger' : 'text-foreground/80'
-                  }`}>
+                  <span
+                    className={`text-xs font-medium uppercase tracking-wider ${
+                      encodingError ? 'text-danger' : 'text-foreground/80'
+                    }`}
+                  >
                     {encodingError ? 'Encoding Failed' : 'Encoding in progress'}
                   </span>
                   {!encodingError && (
-                    <span className="text-xs text-foreground/60">{Math.round(encodingProgress)}%</span>
+                    <span className="text-xs text-foreground/60">
+                      {Math.round(encodingProgress)}%
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm truncate flex-1 font-medium">
-                    {encodingError ? 'Click to view logs' : (currentEncodingFile || 'Initializing...')}
+                    {encodingError
+                      ? 'Click to view logs'
+                      : currentEncodingFile || 'Initializing...'}
                   </span>
                 </div>
                 <Progress
                   size="sm"
                   value={encodingError ? 100 : encodingProgress}
-                  color={encodingError ? "danger" : "primary"}
+                  color={encodingError ? 'danger' : 'primary'}
                   classNames={{
-                    base: "max-w-full",
-                    track: "drop-shadow-md border border-default",
-                    indicator: encodingError ? "" : "bg-gradient-to-r from-primary-500 to-secondary-500",
-                    label: "tracking-wider font-medium text-default-600",
-                    value: "text-foreground/60"
+                    base: 'max-w-full',
+                    track: 'drop-shadow-md border border-default',
+                    indicator: encodingError
+                      ? ''
+                      : 'bg-gradient-to-r from-primary-500 to-secondary-500',
+                    label: 'tracking-wider font-medium text-default-600',
+                    value: 'text-foreground/60'
                   }}
-                  aria-label={encodingError ? "Encoding failed" : "Encoding progress"}
+                  aria-label={encodingError ? 'Encoding failed' : 'Encoding progress'}
                 />
               </CardBody>
             </Card>
