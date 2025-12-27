@@ -141,7 +141,8 @@ function App(): React.JSX.Element {
 
   const processQueue = async (): Promise<void> => {
     isEncodingRef.current = true
-    setIsEncodiError(null)
+    setIsEncoding(true)
+    setEncodingError(null)
     setEncodingLogs(['Starting encoding process...'])
 
     for (const file of selectedFiles) {
@@ -165,8 +166,7 @@ function App(): React.JSX.Element {
         ? outputFilename
         : `${outputFilename}.${container}`
       
-      const outputPath = await window.api.pathJoin(outputDirectory, finals)
-      const outputPath = await window.api.pathJoin(outputDirectory, outputFilename)
+      const outputPath = await window.api.pathJoin(outputDirectory, finalFilename)
 
       const options: EncodingOptions = {
         inputPath: file.path,
@@ -201,6 +201,11 @@ function App(): React.JSX.Element {
           }
 
           window.api.startEncoding(options)
+        })
+        setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        setEncodingLogs((prev) => [...prev, `Error encoding ${file.name}: ${msg}`])
         setEncodingError(msg)
         // Stop queue on error so user can see it
         isEncodingRef.current = false
@@ -220,11 +225,6 @@ function App(): React.JSX.Element {
     } else {
        setEncodingLogs((prev) => [...prev, '\nQueue stopped.'])
     }
-    }
-
-    setIsEncoding(false)
-    isEncodingRef.current = false
-    setEncodingLogs((prev) => [...prev, '\nAll tasks finished.'])
   }
 
   const handleStartEncoding = (): void => {
