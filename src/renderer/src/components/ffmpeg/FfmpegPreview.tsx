@@ -16,6 +16,7 @@ interface FfmpegPreviewProps {
   trackSelection?: string
   crf?: number
   preset?: string
+  ffmpegPath?: string
 }
 
 export default function FfmpegPreview({
@@ -31,14 +32,16 @@ export default function FfmpegPreview({
   volumeDb = 0,
   trackSelection = 'auto',
   crf = 23,
-  preset = 'medium'
+  preset = 'medium',
+  ffmpegPath
 }: FfmpegPreviewProps): React.JSX.Element {
   const generateFfmpegCommand = (): string => {
     const isNvenc = videoCodec.includes('nvenc')
     const qualityFlag = isNvenc ? '-cq' : '-crf'
+    const executable = ffmpegPath ? `"${ffmpegPath}"` : 'ffmpeg'
 
     if (inputFiles.length === 0) {
-      return `ffmpeg -i input.mp4 -c:v ${videoCodec} ${qualityFlag} ${crf} -preset ${preset} -c:a ${audioCodec} output.${outputFormat}`
+      return `${executable} -i input.mp4 -c:v ${videoCodec} ${qualityFlag} ${crf} -preset ${preset} -c:a ${audioCodec} output.${outputFormat}`
     }
 
     // For batch preview, we only show the command for the FIRST file
@@ -90,7 +93,7 @@ export default function FfmpegPreview({
       ? outputFile
       : `${outputFile}.${outputFormat}`
 
-    return `ffmpeg ${inputArgs} ${mapPart} ${videoPart} ${audioPart}${channelPart}${bitratePart}${volumePart} ${subtitlePart} ${threadArg} "${outputDirectory}/${fileWithExt}"`.trim()
+    return `${executable} ${inputArgs} ${mapPart} ${videoPart} ${audioPart}${channelPart}${bitratePart}${volumePart} ${subtitlePart} ${threadArg} "${outputDirectory}/${fileWithExt}"`.trim()
   }
 
   return (

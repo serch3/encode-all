@@ -29,7 +29,8 @@ export function startEncoding(options: EncodingOptions, mainWindow: BrowserWindo
     crf,
     preset,
     threads,
-    trackSelection
+    trackSelection,
+    ffmpegPath
   } = options
 
   // Construct arguments
@@ -83,9 +84,9 @@ export function startEncoding(options: EncodingOptions, mainWindow: BrowserWindo
   logStream = createWriteStream(logPath)
 
   // Spawn
-  // We assume ffmpeg is in PATH. 
-  // In a real app, we might want to pass the specific path if the user selected one.
-  ffmpegProcess = spawn('ffmpeg', args)
+  // Use provided ffmpeg path or default to 'ffmpeg' (assumed in PATH)
+  const executable = ffmpegPath || 'ffmpeg'
+  ffmpegProcess = spawn(executable, args)
 
   let duration = 0
 

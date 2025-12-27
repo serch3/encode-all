@@ -40,4 +40,5 @@ export interface EncodingOptions {
   preset: string
   threads: number
   trackSelection: string
+  ffmpegPath?: string
 }
