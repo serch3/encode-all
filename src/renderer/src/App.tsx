@@ -166,7 +166,14 @@ function App(): React.JSX.Element {
         ? outputFilename
         : `${outputFilename}.${container}`
       
-      const outputPath = await window.api.pathJoin(outputDirectory, finalFilename)
+      // Determine output directory: use selected directory or fallback to input file's directory
+      let targetDir = outputDirectory
+      if (!targetDir) {
+        const lastSlash = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'))
+        targetDir = file.path.substring(0, lastSlash)
+      }
+
+      const outputPath = await window.api.pathJoin(targetDir, finalFilename)
 
       const options: EncodingOptions = {
         inputPath: file.path,
@@ -195,7 +202,12 @@ function App(): React.JSX.Element {
             reject(new Error(err))
           })
 
-          const cleanup = (): void => {
+        
+        setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
+        
+        // Remove from queue and selection upon success
+        setVideoFiles((prev) => prev.filter((f) => f.path !== file.path))
+        setSelectedFiles((prev) => prev.filter((f) => f.path !== file.path)
             removeComplete()
             removeError()
           }
