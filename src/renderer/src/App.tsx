@@ -19,6 +19,7 @@ function App(): React.JSX.Element {
   const [showFfmpegSetup, setShowFfmpegSetup] = useState<boolean>(false)
   const [ffmpegChecked, setFfmpegChecked] = useState<boolean>(false)
   const [hasNvidiaGpu, setHasNvidiaGpu] = useState<boolean>(false)
+  const [ffmpegPath, setFfmpegPath] = useState<string | undefined>(undefined)
 
   // Queue related state
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false)
@@ -30,6 +31,7 @@ function App(): React.JSX.Element {
   const [encodingLogs, setEncodingLogs] = useState<string[]>([])
   const [currentEncodingFile, setCurrentEncodingFile] = useState<string>('')
   const [isEncoding, setIsEncoding] = useState<boolean>(false)
+  const [encodingError, setEncodingError] = useState<string | null>(null)
 
   // Encoding configuration state
   const [container, setContainer] = useState<string>('mkv')
@@ -66,26 +68,24 @@ function App(): React.JSX.Element {
         }
       }
 
-      if (hasBeenChecked) {
-        setFfmpegChecked(true)
-        void checkNvidia()
-        return
-      }
-
       try {
         const status = await window.api?.checkFfmpeg()
+        if (status?.path) {
+          setFfmpegPath(status.path)
+        }
+
         if (!status?.isInstalled) {
-          setShowFfmpegSetup(true)
+          if (!hasBeenChecked) setShowFfmpegSetup(true)
         } else {
           setFfmpegChecked(true)
-          localStorage.setItem('ffmpeg-checked', 'true')
+          if (!hasBeenChecked) localStorage.setItem('ffmpeg-checked', 'true')
           void checkNvidia()
         }
       } catch (error) {
         // Log error and show setup modal as fallback
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
         console.error('Failed to check FFmpeg:', errorMessage)
-        setShowFfmpegSetup(true)
+        if (!hasBeenChecked) setShowFfmpegSetup(true)
       }
     }
 
@@ -141,7 +141,7 @@ function App(): React.JSX.Element {
 
   const processQueue = async (): Promise<void> => {
     isEncodingRef.current = true
-    setIsEncoding(true)
+    setIsEncodiError(null)
     setEncodingLogs(['Starting encoding process...'])
 
     for (const file of selectedFiles) {
@@ -161,6 +161,11 @@ function App(): React.JSX.Element {
         ext: container
       }
       const outputFilename = buildFilenameFromPattern(renamePattern, tokens)
+      const finalFilename = outputFilename.toLowerCase().endsWith(`.${container.toLowerCase()}`)
+        ? outputFilename
+        : `${outputFilename}.${container}`
+      
+      const outputPath = await window.api.pathJoin(outputDirectory, finals)
       const outputPath = await window.api.pathJoin(outputDirectory, outputFilename)
 
       const options: EncodingOptions = {
@@ -175,7 +180,8 @@ function App(): React.JSX.Element {
         crf,
         preset,
         threads,
-        trackSelection
+        trackSelection,
+        ffmpegPath
       }
 
       try {
@@ -195,12 +201,25 @@ function App(): React.JSX.Element {
           }
 
           window.api.startEncoding(options)
-        })
-        setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error)
-        setEncodingLogs((prev) => [...prev, `Error encoding ${file.name}: ${msg}`])
+        setEncodingError(msg)
+        // Stop queue on error so user can see it
+        isEncodingRef.current = false
+        break
       }
+    }
+
+    setIsEncoding(false)
+    // Only clear isEncodingRef if we finished normally or cancelled, 
+    // but we already set it to false in catch block if error.
+    // If we finished loop normally:
+    if (isEncodingRef.current) {
+       isEncodingRef.current = false
+       setEncodingLogs((prev) => [...prev, '\nAll tasks finished.'])
+    } else if (encodingError) {
+       setEncodingLogs((prev) => [...prev, '\nQueue stopped due to error.'])
+    } else {
+       setEncodingLogs((prev) => [...prev, '\nQueue stopped.'])
+    }
     }
 
     setIsEncoding(false)
@@ -458,6 +477,8 @@ function App(): React.JSX.Element {
                   threads={threads}
                   inputFiles={selectedFiles.map((f) => f.path)}
                   videoCodec={videoCodec}
+            encodingError={encodingError}
+            onClearError={() => setEncodingError(null)}
                   audioCodec={audioCodec}
                   audioChannels={audioChannels}
                   audioBitrate={audioBitrate}
@@ -465,6 +486,7 @@ function App(): React.JSX.Element {
                   trackSelection={trackSelection}
                   crf={crf}
                   preset={preset}
+                  ffmpegPath={ffmpegPath}
                 />
               </div>
             )}

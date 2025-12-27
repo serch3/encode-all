@@ -11,6 +11,8 @@ interface GeneralPageProps {
   isEncoding: boolean
   encodingProgress: number
   currentEncodingFile: string
+  encodingError?: string | null
+  onClearError?: () => void
 }
 
 export default function GeneralPage({
@@ -19,9 +21,18 @@ export default function GeneralPage({
   onCancel,
   isEncoding,
   encodingProgress,
-  currentEncodingFile
+  currentEncodingFile,
+  encodingError,
+  onClearError
 }: GeneralPageProps): React.JSX.Element {
   const [selectedTab, setSelectedTab] = useState<string>('encoder')
+
+  const handleToastClick = (): void => {
+    if (encodingError) {
+      setSelectedTab('output')
+      onClearError?.()
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4 h-full relative">
@@ -43,38 +54,49 @@ export default function GeneralPage({
       </Tabs>
 
       <AnimatePresence>
-        {isEncoding && (
+        {(isEncoding || encodingError) && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
-            className="absolute bottom-4 right-4 left-4 md:left-auto md:w-96 z-50"
+            className="absolute bottom-4 right-4 left-4 md:left-auto md:w-96 z-50 cursor-pointer"
+            onClick={handleToastClick}
           >
-            <Card className="bg-content1/90 backdrop-blur-md shadow-lg border border-white/10">
+            <Card 
+              className={`${
+                encodingError 
+                  ? 'bg-danger-50/90 border-danger-200 dark:bg-danger-900/20 dark:border-danger-500/30' 
+                  : 'bg-content1/90 border-white/10'
+              } backdrop-blur-md shadow-lg border`}
+            >
               <CardBody className="gap-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-medium text-foreground/80 uppercase tracking-wider">
-                    Encoding in progress
+                  <span className={`text-xs font-medium uppercase tracking-wider ${
+                    encodingError ? 'text-danger' : 'text-foreground/80'
+                  }`}>
+                    {encodingError ? 'Encoding Failed' : 'Encoding in progress'}
                   </span>
-                  <span className="text-xs text-foreground/60">{Math.round(encodingProgress)}%</span>
+                  {!encodingError && (
+                    <span className="text-xs text-foreground/60">{Math.round(encodingProgress)}%</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm truncate flex-1 font-medium">
-                    {currentEncodingFile || 'Initializing...'}
+                    {encodingError ? 'Click to view logs' : (currentEncodingFile || 'Initializing...')}
                   </span>
                 </div>
                 <Progress
                   size="sm"
-                  value={encodingProgress}
-                  color="primary"
+                  value={encodingError ? 100 : encodingProgress}
+                  color={encodingError ? "danger" : "primary"}
                   classNames={{
                     base: "max-w-full",
                     track: "drop-shadow-md border border-default",
-                    indicator: "bg-gradient-to-r from-primary-500 to-secondary-500",
+                    indicator: encodingError ? "" : "bg-gradient-to-r from-primary-500 to-secondary-500",
                     label: "tracking-wider font-medium text-default-600",
                     value: "text-foreground/60"
                   }}
-                  aria-label="Encoding progress"
+                  aria-label={encodingError ? "Encoding failed" : "Encoding progress"}
                 />
               </CardBody>
             </Card>
