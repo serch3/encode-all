@@ -50,6 +50,9 @@ function App(): React.JSX.Element {
   const isNvenc = videoCodec.includes('nvenc')
   const isEncodingRef = useRef(false)
 
+  // Drag and drop state
+  const [isDragging, setIsDragging] = useState<boolean>(false)
+
   // Check FFmpeg installation on startup
   useEffect(() => {
     const checkFFmpeg = async (): Promise<void> => {
@@ -103,6 +106,60 @@ function App(): React.JSX.Element {
   const handleFfmpegSetupSkip = (): void => {
     setShowFfmpegSetup(false)
     setFfmpegChecked(true)
+  }
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!isEncoding) {
+      setIsDragging(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    // Only set dragging to false if we're actually leaving the drop zone
+    // and not just entering a child element
+    if (e.currentTarget.contains(e.relatedTarget as Node)) {
+      return
+    }
+
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    if (isEncoding) return
+
+    const files = Array.from(e.dataTransfer.files)
+    const validExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v', '.ts']
+
+    const newVideoFiles: VideoFile[] = files
+      .filter((file) => {
+        const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
+        return validExtensions.includes(ext)
+      })
+      .map((file) => ({
+        name: file.name,
+        path: (file as any).path,
+        size: file.size,
+        modified: file.lastModified
+      }))
+
+    if (newVideoFiles.length > 0) {
+      setVideoFiles((prev) => {
+        const existingPaths = new Set(prev.map((f) => f.path))
+        const uniqueNewFiles = newVideoFiles.filter((f) => !existingPaths.has(f.path))
+        return [...prev, ...uniqueNewFiles]
+      })
+      setIsQueueOpen(true)
+    }
   }
 
   // Queue functions
@@ -302,8 +359,19 @@ function App(): React.JSX.Element {
           <GeneralPage
             encoderContent={
               <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
-                <Card className="lg:col-span-2">
-                  <CardBody className="h-64 border-2 border-dashed border-foreground/20 rounded-xl flex items-center justify-center text-foreground/70">
+                <Card
+                  className={`lg:col-span-2 transition-colors ${
+                    isDragging ? 'border-primary bg-primary/10' : ''
+                  }`}
+                >
+                  <CardBody
+                    className={`h-64 border-2 border-dashed ${
+                      isDragging ? 'border-primary' : 'border-foreground/20'
+                    } rounded-xl flex items-center justify-center text-foreground/70 transition-colors`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                  >
                     <div className="text-center">
                       <p className="mb-4">Drag & drop files here</p>
                       <Button

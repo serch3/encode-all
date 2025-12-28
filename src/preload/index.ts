@@ -15,9 +15,10 @@ const api = {
   checkNvidiaSupport: () => electronAPI.ipcRenderer.invoke('check-nvidia-support'),
   selectFfmpegPath: () => electronAPI.ipcRenderer.invoke('select-ffmpeg-path'),
   openExternal: (url: string) => electronAPI.ipcRenderer.invoke('open-external', url),
-  
+
   // Encoding APIs
-  startEncoding: (options: EncodingOptions) => electronAPI.ipcRenderer.invoke('start-encoding', options),
+  startEncoding: (options: EncodingOptions) =>
+    electronAPI.ipcRenderer.invoke('start-encoding', options),
   cancelEncoding: () => electronAPI.ipcRenderer.invoke('cancel-encoding'),
   onEncodingProgress: (callback: (progress: number) => void) => {
     const subscription = (_event: IpcRendererEvent, progress: number) => callback(progress)

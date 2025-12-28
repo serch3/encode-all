@@ -17,36 +17,36 @@
 
 ---
 
-## 📋 Overview
+## Overview
 
 **Encode-All** is a cross-platform desktop application that provides a sleek, modern interface for bulk video encoding using FFmpeg.
 
-## ✨ Features
+## Features
 
-### 🎯 Core Functionality
+### Core Functionality
 - **Batch & Queue** – Add folders, run sequential encodes with progress and status monitoring  
 - **Formats & Codecs** – MP4/MKV/AVI/WebM support; H.264, H.265, VP9, AV1
 
-### 🎨 User Experience
+### User Experience
 - **Modern UI & Themes** – Sleek design with light/dark mode
 - **Live Feedback** – FFmpeg command preview and real-time progress
 
-### ⚙️ Encoding Configuration
+### Encoding Configuration
 - **Codec & Audio Controls** – Video/audio codec, bitrate, channels, thread tuning
 - **Output Management** – Easy custom naming and output directory selection
 
-### 🔧 Technical Features
+### Technical Features
 - **FFmpeg Auto-Detection** – Automatically tries to locate FFmpeg on the system for seamless operation.
 
-## 📸 Screenshots
+## Screenshots
 
 *Coming soon – Application is under active development*
 
-## 🚀 Installation
+## Installation
 
 *Coming soon – Application is under active development*
 
-## 🛠️ Development
+## Development
 
 ### Setup
 
@@ -92,7 +92,7 @@ npm run build:mac
 npm run build:linux
 ```
 
-## 🏗️ Tech Stack
+## Tech Stack
 
 ### Frontend
 - **[React](https://reactjs.org/)** – UI library
@@ -116,14 +116,14 @@ npm run build:linux
 ### Backend Processing
 - **[FFmpeg](https://ffmpeg.org/)** – Multimedia framework for video/audio processing
 
-## 🤝 Contributing
+## Contributing
 
 Feel free to open issues and submit pull requests! There is a lot of room for improvements.
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 👨‍💻 Author
+## Author
 
 **Sergio Mandujano** – [GitHub](https://github.com/serch3)
