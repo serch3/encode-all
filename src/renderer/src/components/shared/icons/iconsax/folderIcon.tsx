@@ -2,46 +2,24 @@ import React, { SVGProps } from 'react'
 
 export const folderIcon: React.FC<SVGProps<SVGSVGElement>> = (props) => {
   return (
-    <svg {...props}>
-      <g clipPath="url(#clip0_4418_3075)">
-        <path
-          d="M12.0601 16.5V11.5"
-          stroke="#fff"
-          strokeWidth="1.5"
-          strokeMiterlimit="10"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M14.5 14H9.5"
-          stroke="#fff"
-          strokeWidth="1.5"
-          strokeMiterlimit="10"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M2 13.02V7C2 3 3 2 7 2H8.5C10 2 10.33 2.44 10.9 3.2L12.4 5.2C12.78 5.7 13 6 14 6H17C21 6 22 7 22 11"
-          stroke="#fff"
-          strokeWidth="1.5"
-          strokeMiterlimit="10"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M22 14.9902V17.0002C22 21.0002 21 22.0002 17 22.0002H7C3 22.0002 2 21.0002 2 17.0002"
-          stroke="#fff"
-          strokeWidth="1.5"
-          strokeMiterlimit="10"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      {...props}
+    >
+      <g clipPath="url(#a)">
+        <path d="M17 22.75H7c-4.41 0-5.75-1.34-5.75-5.75V7c0-4.41 1.34-5.75 5.75-5.75h1.5c1.75 0 2.3.57 3 1.5l1.5 2c.33.44.38.5 1 .5h3c4.41 0 5.75 1.34 5.75 5.75v6c0 4.41-1.34 5.75-5.75 5.75m-10-20c-3.57 0-4.25.68-4.25 4.25v10c0 3.57.68 4.25 4.25 4.25h10c3.57 0 4.25-.68 4.25-4.25v-6c0-3.57-.68-4.25-4.25-4.25h-3c-1.28 0-1.7-.44-2.2-1.1l-1.5-2c-.52-.69-.67-.9-1.8-.9z" fill="CurrentColor" />
       </g>
       <defs>
-        <clipPath id="clip0_4418_3075">
-          <rect width="24" height="24" fill="white" />
+        <clipPath id="a">
+          <path d="M0 0h24v24H0z"/>
         </clipPath>
       </defs>
     </svg>
   )
 }
+
+
