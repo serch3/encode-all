@@ -1,18 +1,22 @@
-import { Switch, cn, Card, CardBody, Button, Chip, Divider } from '@heroui/react'
+import { Switch, cn, Card, CardBody, Button, Chip, Divider, Input } from '@heroui/react'
 import { useState, useEffect, useCallback } from 'react'
-import { CheckCircle, AlertCircle, RefreshCw, Settings as SettingsIcon, Cpu } from 'lucide-react'
+import { CheckCircle, AlertCircle, RefreshCw, Settings as SettingsIcon, Cpu, Folder } from 'lucide-react'
 import type { FfmpegStatus } from '../../types'
 
 interface SettingsProps {
   showFfmpegPreview: boolean
   onShowFfmpegPreviewChange: (value: boolean) => void
   hasNvidiaGpu: boolean
+  logDirectory: string
+  onSelectLogDirectory: () => void
 }
 
 export default function SettingsPage({
   showFfmpegPreview,
   onShowFfmpegPreviewChange,
-  hasNvidiaGpu
+  hasNvidiaGpu,
+  logDirectory,
+  onSelectLogDirectory
 }: SettingsProps): React.JSX.Element {
   // FFmpeg status state
   const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus>({ isInstalled: false })
@@ -186,6 +190,22 @@ export default function SettingsPage({
       {/* Application Settings */}
       <div className="space-y-4">
         <h3 className="text-lg font-medium">Application Settings</h3>
+
+        <Input
+          className="max-w-md"
+          label="Log Directory"
+          placeholder="Default (Same as output)"
+          value={logDirectory}
+          description="Leave empty to save logs next to the output video."
+          variant="bordered"
+          isReadOnly
+          startContent={<Folder className="text-default-400" size={16} />}
+          endContent={
+            <Button size="sm" variant="flat" onPress={onSelectLogDirectory}>
+              Browse
+            </Button>
+          }
+        />
 
         <Switch
           isSelected={showFfmpegPreview}

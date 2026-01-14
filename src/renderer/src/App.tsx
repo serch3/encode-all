@@ -46,6 +46,7 @@ function App(): React.JSX.Element {
   const [trackSelection, setTrackSelection] = useState<string>('auto')
   const [crf, setCrf] = useState<number>(23)
   const [preset, setPreset] = useState<string>('medium')
+  const [logDirectory, setLogDirectory] = useState<string>(() => localStorage.getItem('logDirectory') || '')
 
   const isNvenc = videoCodec.includes('nvenc')
   const isEncodingRef = useRef(false)
@@ -245,7 +246,8 @@ function App(): React.JSX.Element {
         preset,
         threads,
         trackSelection,
-        ffmpegPath
+        ffmpegPath,
+        logDirectory
       } as EncodingOptions
 
       try {
@@ -333,6 +335,18 @@ function App(): React.JSX.Element {
       }
     } catch (error) {
       console.error('Error selecting output directory:', error)
+    }
+  }
+
+  const handleSelectLogFolder = async (): Promise<void> => {
+    try {
+      const folderPath = await window.api.selectFolder()
+      if (folderPath) {
+        setLogDirectory(folderPath)
+        localStorage.setItem('logDirectory', folderPath)
+      }
+    } catch (error) {
+      console.error('Failed to select log folder:', error)
     }
   }
 
@@ -590,6 +604,8 @@ function App(): React.JSX.Element {
             showFfmpegPreview={showFfmpegPreview}
             onShowFfmpegPreviewChange={setShowFfmpegPreview}
             hasNvidiaGpu={hasNvidiaGpu}
+            logDirectory={logDirectory}
+            onSelectLogDirectory={handleSelectLogFolder}
           />
         )}
         {active === 'about' && <div>About this app…</div>}

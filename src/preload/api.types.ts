@@ -41,4 +41,5 @@ export interface EncodingOptions {
   threads: number
   trackSelection: string
   ffmpegPath?: string
+  logDirectory?: string
 }
