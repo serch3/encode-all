@@ -1,5 +1,18 @@
 import { Button, Card, CardBody, Input, Select, SelectItem } from '@heroui/react'
 import { useState, useEffect, useRef } from 'react'
+import { ArrowUpToLine, FolderOpen, History } from 'lucide-react'
+import {
+  boxIcon as BoxIcon,
+  cpuIcon as CpuIcon,
+  editIcon as EditIcon,
+  musicIcon as MusicIcon,
+  settingIcon as SettingIcon,
+  videoIcon as VideoIcon,
+  volumeIcon as VolumeIcon,
+  layerIcon as LayerIcon,
+  waveIcon as WaveIcon,
+  folderIcon as FolderIcon
+} from './components/shared/icons'
 import Layout from './components/layout'
 import { SettingsPage, GeneralPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
@@ -50,6 +63,7 @@ function App(): React.JSX.Element {
 
   const isNvenc = videoCodec.includes('nvenc')
   const isEncodingRef = useRef(false)
+  const shouldSkipRef = useRef(false)
 
   // Drag and drop state
   const [isDragging, setIsDragging] = useState<boolean>(false)
@@ -208,6 +222,9 @@ function App(): React.JSX.Element {
         setEncodingLogs((prev) => [...prev, 'Queue processing stopped.'])
         break
       }
+      
+      // Reset skip flag for new file
+      shouldSkipRef.current = false
 
       setCurrentEncodingFile(file.name)
       setEncodingProgress(0)
@@ -261,17 +278,47 @@ function App(): React.JSX.Element {
             reject(new Error(err))
           })
 
-          const cleanup = (): void => {
+          let cleanup = (): void => {
             removeComplete()
             removeError()
           }
+          
+          // Check if skip was pressed while setting up
+          if (shouldSkipRef.current) {
+            resolve()
+            return
+          }
 
           window.api.startEncoding(options)
+          
+          // Poll for skip request
+          // This is a bit hacky but works without deep piping into ffmpeg.ts for now
+          // Ideally we send an IPC message to cancel current but keep queue running
+          const skipChecker = setInterval(() => {
+            if (shouldSkipRef.current) {
+               window.api.cancelEncoding().then(() => {
+                 cleanup()
+                 setEncodingLogs((prev) => [...prev, `Skipped: ${file.name}`])
+                 resolve() // Resolve properly to continue loop
+               })
+               clearInterval(skipChecker)
+            }
+          }, 500)
+          
+           // Ensure interval clears on completion/error
+           const originalCleanup = cleanup
+           // @ts-ignore - overriding localized function
+           cleanup = () => {
+             clearInterval(skipChecker)
+             originalCleanup()
+           }
         })
 
-        setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
+        if (!shouldSkipRef.current) {
+           setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
+        }
 
-        // Remove from queue and selection upon success
+        // Remove from queue and selection upon success OR SKIP
         setVideoFiles((prev) => prev.filter((f) => f.path !== file.path))
         setSelectedFiles((prev) => prev.filter((f) => f.path !== file.path))
       } catch (error) {
@@ -308,6 +355,37 @@ function App(): React.JSX.Element {
     setIsEncoding(false)
     await window.api.cancelEncoding()
     setEncodingLogs((prev) => [...prev, 'Encoding cancelled by user.'])
+  }
+
+  const handleSkipCurrent = (): void => {
+    shouldSkipRef.current = true
+    setEncodingLogs((prev) => [...prev, 'Skipping current file...'])
+  }
+
+  const handleSaveQueue = async (filesToSave: VideoFile[]): Promise<void> => {
+    try {
+      const content = JSON.stringify(filesToSave, null, 2)
+      await window.api.saveTextFile(content, 'queue.json')
+    } catch (error) {
+       console.error('Failed to save queue', error)
+    }
+  }
+
+  const handleLoadQueue = async (): Promise<void> => {
+      try {
+        const content = await window.api.readTextFile()
+        if (content) {
+            const files = JSON.parse(content) as VideoFile[]
+            // Validate basic structure
+            if (Array.isArray(files) && files.every(f => f.path && f.name)) {
+                setVideoFiles(files)
+                setSelectedFiles(files) // Auto select loaded
+                setIsQueueOpen(true)
+            }
+        }
+      } catch (error) {
+          console.error('Failed to load queue', error)
+      }
   }
 
   // Listen for progress and logs
@@ -374,28 +452,95 @@ function App(): React.JSX.Element {
             encoderContent={
               <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
                 <Card
-                  className={`lg:col-span-2 transition-colors ${
-                    isDragging ? 'border-primary bg-primary/10' : ''
-                  }`}
+                  className={
+                    `lg:col-span-2 group border bg-content1/60 backdrop-blur-md transition-all duration-200 ease-out will-change-transform ` +
+                    (isDragging
+                      ? 'border-primary/30 shadow-md'
+                      : 'border-default-200/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-[1px]')
+                  }
                 >
                   <CardBody
-                    className={`h-64 border-2 border-dashed ${
-                      isDragging ? 'border-primary' : 'border-foreground/20'
-                    } rounded-xl flex items-center justify-center text-foreground/70 transition-colors`}
+                    className={
+                      `relative h-64 rounded-2xl overflow-hidden p-0 transition-colors duration-200 ` +
+                      (isEncoding ? 'cursor-not-allowed' : 'cursor-pointer') +
+                      ' focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30'
+                    }
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
+                    onClick={() => {
+                      if (!isEncoding) void handleSelectFolder()
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (isEncoding) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        void handleSelectFolder()
+                      }
+                    }}
                   >
-                    <div className="text-center">
-                      <p className="mb-4">Drag & drop files here</p>
-                      <Button
-                        color="primary"
-                        variant="flat"
-                        onPress={handleSelectFolder}
-                        isDisabled={isEncoding}
+                    <div
+                      className={
+                        `absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-black/10 ` +
+                        `group-hover:from-black/20 group-hover:to-primary/20 transition-opacity duration-200 ` +
+                        (isDragging ? 'opacity-100' : 'opacity-40 group-hover:opacity-85')
+                      }
+                    />
+                    <div
+                      className={
+                        `absolute inset-3 rounded-2xl border border-dashed transition-colors duration-200 ` +
+                        (isDragging
+                          ? 'border-primary/70'
+                          : 'border-default-300/60 group-hover:border-primary/40')
+                      }
+                    />
+
+                    <div className="relative h-full w-full flex flex-col items-center justify-center px-6 text-center">
+                      <div
+                        className={
+                          `mb-4 inline-flex items-center justify-center rounded-full p-3 border shadow-sm transition-colors duration-200 ` +
+                          (isDragging
+                            ? 'bg-primary/10 text-primary border-primary/30'
+                            : 'bg-content2/70 text-default-500 border-default-200/70 group-hover:bg-primary/10 group-hover:text-primary')
+                        }
                       >
-                        Or select folder
-                      </Button>
+                        <ArrowUpToLine size={26} />
+                      </div>
+
+                      <div className="space-y-1">
+                        <p className="text-xl font-semibold tracking-tight text-foreground">
+                          {isDragging ? 'Drop to add to queue' : 'Drop videos here'}
+                        </p>
+                        <p className="text-small text-default-500">
+                          or click to browse a folder • MP4, MKV, AVI, MOV, WebM
+                        </p>
+                      </div>
+
+                      <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                        <Button
+                          color="primary"
+                          variant="shadow"
+                          onPress={handleSelectFolder}
+                          isDisabled={isEncoding}
+                          startContent={<FolderOpen size={18} />}
+                        >
+                          Browse Folder
+                        </Button>
+                        <Button
+                          variant="light"
+                          onPress={handleLoadQueue}
+                          isDisabled={isEncoding}
+                          startContent={<History size={18} />}
+                        >
+                          Load Session
+                        </Button>
+                      </div>
+
+                      <p className="mt-3 text-tiny text-default-400">
+                        Tip: Saved sessions can be reloaded anytime.
+                      </p>
                     </div>
                   </CardBody>
                 </Card>
@@ -404,6 +549,7 @@ function App(): React.JSX.Element {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <Select
                         label="Container"
+                        startContent={<BoxIcon className="w-5 h-5 text-default-400" />}
                         selectedKeys={[container]}
                         onSelectionChange={(keys) => setContainer(Array.from(keys)[0] as string)}
                         isDisabled={isEncoding}
@@ -415,6 +561,7 @@ function App(): React.JSX.Element {
                       </Select>
                       <Select
                         label="Video Codec"
+                        startContent={<VideoIcon className="w-5 h-5 text-default-400" />}
                         selectedKeys={[videoCodec]}
                         onSelectionChange={(keys) => setVideoCodec(Array.from(keys)[0] as string)}
                         isDisabled={isEncoding}
@@ -436,6 +583,7 @@ function App(): React.JSX.Element {
                       </Select>
                       <Select
                         label="Preset"
+                        startContent={<CpuIcon className="w-5 h-5 text-default-400" />}
                         selectedKeys={[preset]}
                         onSelectionChange={(keys) => setPreset(Array.from(keys)[0] as string)}
                         description="Speed vs Compression efficiency"
@@ -453,6 +601,7 @@ function App(): React.JSX.Element {
                       </Select>
                       <Input
                         label={isNvenc ? 'Quality (CQ)' : 'Quality (CRF)'}
+                        startContent={<SettingIcon className="w-5 h-5 text-default-400" />}
                         type="number"
                         value={crf.toString()}
                         onChange={(e) => setCrf(parseInt(e.target.value) || 23)}
@@ -465,6 +614,7 @@ function App(): React.JSX.Element {
                       />
                       <Select
                         label="Audio Codec"
+                        startContent={<MusicIcon className="w-5 h-5 text-default-400" />}
                         selectedKeys={[audioCodec]}
                         onSelectionChange={(keys) => setAudioCodec(Array.from(keys)[0] as string)}
                         isDisabled={isEncoding}
@@ -475,6 +625,7 @@ function App(): React.JSX.Element {
                       </Select>
                       <Input
                         label="Threads"
+                        startContent={<CpuIcon className="w-5 h-5 text-default-400" />}
                         type="number"
                         value={threads.toString()}
                         onChange={(e) => setThreads(parseInt(e.target.value) || 0)}
@@ -483,6 +634,7 @@ function App(): React.JSX.Element {
                       />
                       <Select
                         label="Audio Channels"
+                        startContent={<VolumeIcon className="w-5 h-5 text-default-400" />}
                         selectedKeys={[audioChannels]}
                         onSelectionChange={(keys) =>
                           setAudioChannels(Array.from(keys)[0] as string)
@@ -496,6 +648,7 @@ function App(): React.JSX.Element {
                       </Select>
                       <Input
                         label="Audio Bitrate (kbps)"
+                        startContent={<WaveIcon className="w-5 h-5 text-default-400" />}
                         type="number"
                         value={audioBitrate.toString()}
                         onChange={(e) => setAudioBitrate(parseInt(e.target.value) || 0)}
@@ -504,6 +657,7 @@ function App(): React.JSX.Element {
                       />
                       <Input
                         label="Volume Adjust (dB)"
+                        startContent={<VolumeIcon className="w-5 h-5 text-default-400" />}
                         type="number"
                         value={volumeDb.toString()}
                         onChange={(e) => setVolumeDb(parseFloat(e.target.value) || 0)}
@@ -512,6 +666,7 @@ function App(): React.JSX.Element {
                       />
                       <Select
                         label="Track Selection"
+                        startContent={<LayerIcon className="w-5 h-5 text-default-400" />}
                         selectedKeys={[trackSelection]}
                         onSelectionChange={(keys) =>
                           setTrackSelection(Array.from(keys)[0] as string)
@@ -532,6 +687,7 @@ function App(): React.JSX.Element {
                       <div className="flex gap-2 items-end">
                         <Input
                           label="Output directory"
+                          startContent={<FolderIcon className="w-5 h-5 text-default-400" />}
                           placeholder="Same as input (default)"
                           readOnly
                           value={outputDirectory}
@@ -549,6 +705,7 @@ function App(): React.JSX.Element {
                       </div>
                       <Input
                         label="Rename pattern"
+                        startContent={<EditIcon className="w-5 h-5 text-default-400" />}
                         placeholder="e.g. {name}_{codec}"
                         value={renamePattern}
                         onChange={(e) => setRenamePattern(e.target.value)}
@@ -624,6 +781,9 @@ function App(): React.JSX.Element {
           handleStartEncoding()
         }}
         isEncoding={isEncoding}
+        onSkipCurrent={handleSkipCurrent}
+        onSaveQueue={handleSaveQueue}
+        onLoadQueue={handleLoadQueue}
       />
 
       <FfmpegSetup
