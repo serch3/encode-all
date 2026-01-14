@@ -8,6 +8,8 @@ interface FfmpegPreviewProps {
   regexPattern: string // rename pattern with tokens {name} {codec} {ext}
   threads: number // ffmpeg threads flag
   inputFiles: string[]
+  encodingError?: string | null
+  onClearError?: () => void
   videoCodec?: string
   audioCodec?: string
   audioChannels?: string
@@ -25,6 +27,8 @@ export default function FfmpegPreview({
   regexPattern,
   threads,
   inputFiles,
+  encodingError,
+  onClearError,
   videoCodec = 'libx265',
   audioCodec = 'aac',
   audioChannels = 'same',
@@ -105,6 +109,16 @@ export default function FfmpegPreview({
         <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg font-mono text-sm overflow-x-auto">
           <code>{generateFfmpegCommand()}</code>
         </div>
+        {encodingError && (
+          <div className="text-xs text-danger flex items-center justify-between gap-3">
+            <span className="truncate">Last error: {encodingError}</span>
+            {onClearError && (
+              <button className="text-xs underline" onClick={onClearError}>
+                clear
+              </button>
+            )}
+          </div>
+        )}
         <p className="text-xs text-gray-500 mt-2">
           This command will be executed for <strong>each</strong> selected file.
           {inputFiles.length > 1 && ` (Showing preview for 1 of ${inputFiles.length} files)`}

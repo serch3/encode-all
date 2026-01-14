@@ -10,9 +10,12 @@ import {
   CardBody,
   Chip,
   ScrollShadow,
-  Input
+  Input,
+  Tooltip,
+  ButtonGroup
 } from '@heroui/react'
 import type { VideoFile } from '../../types'
+import { Save, Upload, SkipForward } from 'lucide-react'
 
 interface QueueDrawerProps {
   isOpen: boolean
@@ -24,6 +27,9 @@ interface QueueDrawerProps {
   onClearSelection?: () => void
   onEncode?: () => void
   isEncoding?: boolean
+  onSkipCurrent?: () => void
+  onSaveQueue?: (files: VideoFile[]) => void
+  onLoadQueue?: () => void
 }
 
 export default function QueueDrawer({
@@ -35,7 +41,10 @@ export default function QueueDrawer({
   onSelectAll,
   onClearSelection,
   onEncode,
-  isEncoding
+  isEncoding,
+  onSkipCurrent,
+  onSaveQueue,
+  onLoadQueue
 }: QueueDrawerProps): React.JSX.Element {
   const formatFileSize = (bytes: number): string => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
@@ -170,7 +179,33 @@ export default function QueueDrawer({
           </ScrollShadow>
         </DrawerBody>
 
-        <DrawerFooter>
+        <DrawerFooter className="flex flex-col gap-2">
+           <div className="flex justify-between items-center w-full px-2 pb-2">
+            <ButtonGroup variant="flat" size="sm">
+               <Tooltip content="Save current queue state to file">
+                  <Button isIconOnly onPress={() => onSaveQueue?.(selectedFiles.length > 0 ? selectedFiles : videoFiles)}>
+                    <Save size={16} />
+                  </Button>
+               </Tooltip>
+               <Tooltip content="Load queue from file">
+                  <Button isIconOnly onPress={onLoadQueue}>
+                    <Upload size={16} />
+                  </Button>
+               </Tooltip>
+            </ButtonGroup>
+            
+            {isEncoding && (
+               <Button
+                 size="sm"
+                 color="warning"
+                 variant="flat"
+                 onPress={onSkipCurrent}
+                 startContent={<SkipForward size={16}/>}
+               >
+                 Skip Current
+               </Button>
+            )}
+          </div>
           <div className="flex gap-2 w-full">
             <Button variant="flat" onPress={onClose} className="flex-1">
               Close

@@ -25,6 +25,8 @@ export interface CustomAPI {
   onEncodingError: (callback: (error: string) => void) => () => void
   removeEncodingListeners: () => void
   pathJoin: (...paths: string[]) => Promise<string>
+  saveTextFile: (content: string, defaultName?: string) => Promise<boolean>
+  readTextFile: () => Promise<string | null>
 }
 
 export interface EncodingOptions {

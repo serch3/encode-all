@@ -228,6 +228,37 @@ app.whenReady().then(() => {
     cancelEncoding()
   })
 
+  ipcMain.handle(
+    'save-text-file',
+    async (_, content: string, defaultName: string = 'queue-state.json') => {
+      const { filePath } = await dialog.showSaveDialog({
+        title: 'Save Encoding Queue',
+        defaultPath: defaultName,
+        filters: [{ name: 'JSON Files', extensions: ['json'] }]
+      })
+
+      if (filePath) {
+        // Use fs promises here properly, or require fs/promises
+        require('fs').writeFileSync(filePath, content, 'utf-8')
+        return true
+      }
+      return false
+    }
+  )
+
+  ipcMain.handle('read-text-file', async () => {
+    const { filePaths } = await dialog.showOpenDialog({
+      title: 'Load Encoding Queue',
+      filters: [{ name: 'JSON Files', extensions: ['json'] }],
+      properties: ['openFile']
+    })
+
+    if (filePaths && filePaths.length > 0) {
+      return require('fs').readFileSync(filePaths[0], 'utf-8')
+    }
+    return null
+  })
+
   createWindow()
 
   app.on('activate', function () {

@@ -46,7 +46,13 @@ const api = {
     ipcRenderer.removeAllListeners('encoding-complete')
     ipcRenderer.removeAllListeners('encoding-error')
   },
-  pathJoin: (...paths: string[]) => Promise.resolve(join(...paths))
+  pathJoin: (...paths: string[]) => Promise.resolve(join(...paths)),
+  saveTextFile: async (content: string, defaultName?: string) => {
+    return electronAPI.ipcRenderer.invoke('save-text-file', content, defaultName)
+  },
+  readTextFile: async () => {
+    return electronAPI.ipcRenderer.invoke('read-text-file')
+  }
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to
