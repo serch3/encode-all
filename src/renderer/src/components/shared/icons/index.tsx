@@ -9,7 +9,5 @@ import { volumeIcon } from './iconsax/volumeIcon'
 import { layerIcon } from './iconsax/layerIcon'
 import { waveIcon } from './iconsax/waveIcon'
 
-// todo: add more icons here and export them
-
 export { folderIcon, videoIcon, musicIcon, settingIcon, cpuIcon, boxIcon, editIcon, volumeIcon, layerIcon, waveIcon }
 

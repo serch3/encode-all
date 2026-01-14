@@ -1,7 +1,7 @@
 import { spawn, ChildProcess } from 'child_process'
 import { BrowserWindow } from 'electron'
-import { createWriteStream, WriteStream } from 'fs'
-import { join, basename } from 'path'
+import { createWriteStream, WriteStream, mkdirSync, existsSync } from 'fs'
+import { join, basename, dirname } from 'path'
 import { EncodingOptions } from '../preload/api.types'
 
 let ffmpegProcess: ChildProcess | null = null
@@ -32,7 +32,8 @@ export function startEncoding(options: EncodingOptions, mainWindow: BrowserWindo
     threads,
     trackSelection,
     ffmpegPath,
-    logDirectory
+    logDirectory,
+    jobTimestamp
   } = options
 
   // Construct arguments
@@ -83,9 +84,18 @@ export function startEncoding(options: EncodingOptions, mainWindow: BrowserWindo
 
   // Logging setup
   let logPath: string
+  const filename = basename(outputPath)
+
   if (logDirectory) {
-    const filename = basename(outputPath)
     logPath = join(logDirectory, `${filename}.log`)
+  } else if (jobTimestamp) {
+    const outputDir = dirname(outputPath)
+    const logsFolder = join(outputDir, `logs_${jobTimestamp}`)
+    
+    if (!existsSync(logsFolder)) {
+      mkdirSync(logsFolder, { recursive: true })
+    }
+    logPath = join(logsFolder, `${filename}.log`)
   } else {
     logPath = `${outputPath}.log`
   }

@@ -217,6 +217,9 @@ function App(): React.JSX.Element {
     setEncodingError(null)
     setEncodingLogs(['Starting encoding process...'])
 
+    const now = new Date()
+    const jobTimestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`
+
     for (const file of selectedFiles) {
       if (!isEncodingRef.current) {
         setEncodingLogs((prev) => [...prev, 'Queue processing stopped.'])
@@ -264,7 +267,8 @@ function App(): React.JSX.Element {
         threads,
         trackSelection,
         ffmpegPath,
-        logDirectory
+        logDirectory,
+        jobTimestamp
       } as EncodingOptions
 
       try {

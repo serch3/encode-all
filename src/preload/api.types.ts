@@ -44,4 +44,5 @@ export interface EncodingOptions {
   trackSelection: string
   ffmpegPath?: string
   logDirectory?: string
+  jobTimestamp?: string
 }
