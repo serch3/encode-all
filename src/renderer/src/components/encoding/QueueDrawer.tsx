@@ -120,7 +120,7 @@ export default function QueueDrawer({
                 size="sm"
                 variant="flat"
                 onPress={() => onSelectAll?.()}
-                isDisabled={videoFiles.length === 0}
+                isDisabled={videoFiles.length === 0 || isEncoding}
               >
                 Select All
               </Button>
@@ -128,7 +128,7 @@ export default function QueueDrawer({
                 size="sm"
                 variant="flat"
                 onPress={() => onClearSelection?.()}
-                isDisabled={selectedFiles.length === 0}
+                isDisabled={selectedFiles.length === 0 || isEncoding}
               >
                 Clear
               </Button>
@@ -154,12 +154,16 @@ export default function QueueDrawer({
                   {filtered.map((file) => (
                     <Card
                       key={file.path}
-                      isPressable={!!onSelectFile}
-                      onPress={() => onSelectFile?.(file)}
-                      className={`transition-shadow duration-150 border-0 shadow-sm hover:shadow-md w-full min-w-0 ${
+                      isPressable={!!onSelectFile && !isEncoding}
+                      onPress={() => !isEncoding && onSelectFile?.(file)}
+                      className={`transition-shadow duration-150 border-0 shadow-sm w-full min-w-0 ${
+                        !isEncoding ? 'hover:shadow-md' : ''
+                      } ${
                         isSelected(file)
                           ? 'ring-1 ring-primary/30 bg-primary/5 shadow-primary/20'
-                          : 'hover:bg-default-50/80'
+                          : isEncoding
+                            ? 'opacity-60 cursor-not-allowed'
+                            : 'hover:bg-default-50/80'
                       }`}
                     >
                       <CardBody className="px-3 py-2 w-full min-w-0">
@@ -200,30 +204,35 @@ export default function QueueDrawer({
         </DrawerBody>
 
         <DrawerFooter className="flex flex-col gap-2">
-           <div className="flex justify-between items-center w-full px-2 pb-2">
+          <div className="flex justify-between items-center w-full px-2 pb-2">
             <ButtonGroup variant="flat" size="sm">
-               <Tooltip content="Save current queue state to file">
-                  <Button isIconOnly onPress={() => onSaveQueue?.(selectedFiles.length > 0 ? selectedFiles : videoFiles)}>
-                    <Save size={16} />
-                  </Button>
-               </Tooltip>
-               <Tooltip content="Load queue from file">
-                  <Button isIconOnly onPress={onLoadQueue}>
-                    <Upload size={16} />
-                  </Button>
-               </Tooltip>
+              <Tooltip content="Save current queue state to file">
+                <Button
+                  isIconOnly
+                  onPress={() =>
+                    onSaveQueue?.(selectedFiles.length > 0 ? selectedFiles : videoFiles)
+                  }
+                >
+                  <Save size={16} />
+                </Button>
+              </Tooltip>
+              <Tooltip content="Load queue from file">
+                <Button isIconOnly onPress={onLoadQueue}>
+                  <Upload size={16} />
+                </Button>
+              </Tooltip>
             </ButtonGroup>
-            
+
             {isEncoding && (
-               <Button
-                 size="sm"
-                 color="warning"
-                 variant="flat"
-                 onPress={onSkipCurrent}
-                 startContent={<SkipForward size={16}/>}
-               >
-                 Skip Current
-               </Button>
+              <Button
+                size="sm"
+                color="warning"
+                variant="flat"
+                onPress={onSkipCurrent}
+                startContent={<SkipForward size={16} />}
+              >
+                Skip Current
+              </Button>
             )}
           </div>
           <div className="flex gap-2 w-full">
