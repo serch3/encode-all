@@ -1,6 +1,7 @@
 import { Button, Card, CardBody, Input, Select, SelectItem } from '@heroui/react'
 import { useState, useEffect, useRef } from 'react'
 import { ArrowUpToLine, FolderOpen, History } from 'lucide-react'
+import { useLocalStorage } from './hooks/useLocalStorage'
 import {
   boxIcon as BoxIcon,
   cpuIcon as CpuIcon,
@@ -47,19 +48,19 @@ function App(): React.JSX.Element {
   const [encodingError, setEncodingError] = useState<string | null>(null)
 
   // Encoding configuration state
-  const [container, setContainer] = useState<string>('mkv')
-  const [videoCodec, setVideoCodec] = useState<string>('libx265')
-  const [audioCodec, setAudioCodec] = useState<string>('aac')
-  const [audioChannels, setAudioChannels] = useState<string>('same')
-  const [audioBitrate, setAudioBitrate] = useState<number>(128)
-  const [volumeDb, setVolumeDb] = useState<number>(0)
-  const [renamePattern, setRenamePattern] = useState<string>('{name}_{codec}')
-  const [outputDirectory, setOutputDirectory] = useState<string>('')
-  const [threads, setThreads] = useState<number>(0)
-  const [trackSelection, setTrackSelection] = useState<string>('auto')
-  const [crf, setCrf] = useState<number>(23)
-  const [preset, setPreset] = useState<string>('medium')
-  const [logDirectory, setLogDirectory] = useState<string>(() => localStorage.getItem('logDirectory') || '')
+  const [container, setContainer] = useLocalStorage<string>('config-container', 'mkv')
+  const [videoCodec, setVideoCodec] = useLocalStorage<string>('config-videoCodec', 'libx265')
+  const [audioCodec, setAudioCodec] = useLocalStorage<string>('config-audioCodec', 'aac')
+  const [audioChannels, setAudioChannels] = useLocalStorage<string>('config-audioChannels', 'same')
+  const [audioBitrate, setAudioBitrate] = useLocalStorage<number>('config-audioBitrate', 128)
+  const [volumeDb, setVolumeDb] = useLocalStorage<number>('config-volumeDb', 0)
+  const [renamePattern, setRenamePattern] = useLocalStorage<string>('config-renamePattern', '{name}_{codec}')
+  const [outputDirectory, setOutputDirectory] = useLocalStorage<string>('config-outputDirectory', '')
+  const [threads, setThreads] = useLocalStorage<number>('config-threads', 0)
+  const [trackSelection, setTrackSelection] = useLocalStorage<string>('config-trackSelection', 'auto')
+  const [crf, setCrf] = useLocalStorage<number>('config-crf', 23)
+  const [preset, setPreset] = useLocalStorage<string>('config-preset', 'medium')
+  const [logDirectory, setLogDirectory] = useLocalStorage<string>('logDirectory', '')
 
   const isNvenc = videoCodec.includes('nvenc')
   const isEncodingRef = useRef(false)
