@@ -12,7 +12,8 @@ import {
   ScrollShadow,
   Input,
   Tooltip,
-  ButtonGroup
+  ButtonGroup,
+  Progress
 } from '@heroui/react'
 import type { VideoFile } from '../../types'
 import { Save, Upload, SkipForward } from 'lucide-react'
@@ -30,6 +31,8 @@ interface QueueDrawerProps {
   onSkipCurrent?: () => void
   onSaveQueue?: (files: VideoFile[]) => void
   onLoadQueue?: () => void
+  overallProgress?: number
+  eta?: string
 }
 
 export default function QueueDrawer({
@@ -44,7 +47,9 @@ export default function QueueDrawer({
   isEncoding,
   onSkipCurrent,
   onSaveQueue,
-  onLoadQueue
+  onLoadQueue,
+  overallProgress,
+  eta
 }: QueueDrawerProps): React.JSX.Element {
   const formatFileSize = (bytes: number): string => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
@@ -86,6 +91,21 @@ export default function QueueDrawer({
         </DrawerHeader>
 
         <DrawerBody>
+          {isEncoding && overallProgress !== undefined && (
+            <div className="flex flex-col gap-2 mb-4 bg-content2 p-3 rounded-medium">
+              <div className="flex justify-between text-small">
+                <span className="font-medium">Total Progress</span>
+                <span className="text-default-500 font-mono">{eta && `ETA: ${eta}`}</span>
+              </div>
+              <Progress
+                size="sm"
+                value={overallProgress}
+                color="primary"
+                showValueLabel={true}
+                aria-label="Overall encoding progress"
+              />
+            </div>
+          )}
           {/* Toolbar */}
           <div className="flex flex-col gap-3 mb-4">
             <div className="flex gap-2 items-center">

@@ -46,6 +46,12 @@ function App(): React.JSX.Element {
   const [currentEncodingFile, setCurrentEncodingFile] = useState<string>('')
   const [isEncoding, setIsEncoding] = useState<boolean>(false)
   const [encodingError, setEncodingError] = useState<string | null>(null)
+  
+  // ETA and Overall Progress calculation
+  const [queueStartTime, setQueueStartTime] = useState<number | null>(null)
+  const [completedFilesCount, setCompletedFilesCount] = useState<number>(0)
+  const [totalQueueSize, setTotalQueueSize] = useState<number>(0)
+  const [eta, setEta] = useState<string>('--')
 
   // Encoding configuration state
   const [container, setContainer] = useLocalStorage<string>('config-container', 'mkv')
@@ -215,6 +221,10 @@ function App(): React.JSX.Element {
   const processQueue = async (): Promise<void> => {
     isEncodingRef.current = true
     setIsEncoding(true)
+    setTotalQueueSize(selectedFiles.length)
+    setQueueStartTime(Date.now())
+    setCompletedFilesCount(0)
+
     setEncodingError(null)
     setEncodingLogs(['Starting encoding process...'])
 
@@ -326,6 +336,8 @@ function App(): React.JSX.Element {
         // Remove from queue and selection upon success OR SKIP
         setVideoFiles((prev) => prev.filter((f) => f.path !== file.path))
         setSelectedFiles((prev) => prev.filter((f) => f.path !== file.path))
+        setCompletedFilesCount((prev) => prev + 1)
+        setEncodingProgress(0)
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error)
         setEncodingLogs((prev) => [...prev, `Error encoding ${file.name}: ${msg}`])
@@ -409,6 +421,42 @@ function App(): React.JSX.Element {
       removeLog()
     }
   }, [])
+
+  // Calculate overall progress
+  const overallProgress = totalQueueSize > 0 
+    ? Math.min(100, ((completedFilesCount + (encodingProgress / 100)) / totalQueueSize) * 100) 
+    : 0
+
+  // Calculate ETA
+  useEffect(() => {
+    if (!isEncoding || !queueStartTime || overallProgress <= 0 || overallProgress >= 100) {
+      if (!isEncoding) setEta('--')
+      return
+    }
+
+    const formatDuration = (ms: number): string => {
+      if (ms < 0) return '0s'
+      const seconds = Math.floor((ms / 1000) % 60)
+      const minutes = Math.floor((ms / (1000 * 60)) % 60)
+      const hours = Math.floor((ms / (1000 * 60 * 60)))
+      
+      if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`
+      if (minutes > 0) return `${minutes}m ${seconds}s`
+      return `${seconds}s`
+    }
+
+    const updateEta = (): void => {
+        const elapsed = Date.now() - queueStartTime
+        const estimatedTotal = elapsed / (overallProgress / 100)
+        const remaining = estimatedTotal - elapsed
+        setEta(formatDuration(remaining))
+    }
+
+    updateEta() // Initial update
+    const interval = setInterval(updateEta, 1000)
+
+    return () => clearInterval(interval)
+  }, [isEncoding, queueStartTime, overallProgress])
 
   const handleSelectOutputDirectory = async (): Promise<void> => {
     try {
@@ -789,6 +837,8 @@ function App(): React.JSX.Element {
         onSkipCurrent={handleSkipCurrent}
         onSaveQueue={handleSaveQueue}
         onLoadQueue={handleLoadQueue}
+        overallProgress={overallProgress}
+        eta={eta}
       />
 
       <FfmpegSetup
