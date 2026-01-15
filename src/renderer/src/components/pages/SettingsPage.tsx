@@ -1,6 +1,13 @@
 import { Switch, cn, Card, CardBody, Button, Chip, Divider, Input } from '@heroui/react'
 import { useState, useEffect, useCallback } from 'react'
-import { CheckCircle, AlertCircle, RefreshCw, Settings as SettingsIcon, Cpu, Folder } from 'lucide-react'
+import {
+  CheckCircle,
+  AlertCircle,
+  RefreshCw,
+  Settings as SettingsIcon,
+  Cpu,
+  Folder
+} from 'lucide-react'
 import type { FfmpegStatus } from '../../types'
 
 interface SettingsProps {

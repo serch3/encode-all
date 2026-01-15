@@ -91,7 +91,7 @@ export function startEncoding(options: EncodingOptions, mainWindow: BrowserWindo
   } else if (jobTimestamp) {
     const outputDir = dirname(outputPath)
     const logsFolder = join(outputDir, `logs_${jobTimestamp}`)
-    
+
     if (!existsSync(logsFolder)) {
       mkdirSync(logsFolder, { recursive: true })
     }

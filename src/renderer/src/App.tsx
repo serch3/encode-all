@@ -46,7 +46,7 @@ function App(): React.JSX.Element {
   const [currentEncodingFile, setCurrentEncodingFile] = useState<string>('')
   const [isEncoding, setIsEncoding] = useState<boolean>(false)
   const [encodingError, setEncodingError] = useState<string | null>(null)
-  
+
   // ETA and Overall Progress calculation
   const [queueStartTime, setQueueStartTime] = useState<number | null>(null)
   const [completedFilesCount, setCompletedFilesCount] = useState<number>(0)
@@ -60,10 +60,19 @@ function App(): React.JSX.Element {
   const [audioChannels, setAudioChannels] = useLocalStorage<string>('config-audioChannels', 'same')
   const [audioBitrate, setAudioBitrate] = useLocalStorage<number>('config-audioBitrate', 128)
   const [volumeDb, setVolumeDb] = useLocalStorage<number>('config-volumeDb', 0)
-  const [renamePattern, setRenamePattern] = useLocalStorage<string>('config-renamePattern', '{name}_{codec}')
-  const [outputDirectory, setOutputDirectory] = useLocalStorage<string>('config-outputDirectory', '')
+  const [renamePattern, setRenamePattern] = useLocalStorage<string>(
+    'config-renamePattern',
+    '{name}_{codec}'
+  )
+  const [outputDirectory, setOutputDirectory] = useLocalStorage<string>(
+    'config-outputDirectory',
+    ''
+  )
   const [threads, setThreads] = useLocalStorage<number>('config-threads', 0)
-  const [trackSelection, setTrackSelection] = useLocalStorage<string>('config-trackSelection', 'auto')
+  const [trackSelection, setTrackSelection] = useLocalStorage<string>(
+    'config-trackSelection',
+    'auto'
+  )
   const [crf, setCrf] = useLocalStorage<number>('config-crf', 23)
   const [preset, setPreset] = useLocalStorage<string>('config-preset', 'medium')
   const [logDirectory, setLogDirectory] = useLocalStorage<string>('logDirectory', '')
@@ -236,7 +245,7 @@ function App(): React.JSX.Element {
         setEncodingLogs((prev) => [...prev, 'Queue processing stopped.'])
         break
       }
-      
+
       // Reset skip flag for new file
       shouldSkipRef.current = false
 
@@ -297,7 +306,7 @@ function App(): React.JSX.Element {
             removeComplete()
             removeError()
           }
-          
+
           // Check if skip was pressed while setting up
           if (shouldSkipRef.current) {
             resolve()
@@ -305,32 +314,31 @@ function App(): React.JSX.Element {
           }
 
           window.api.startEncoding(options)
-          
+
           // Poll for skip request
-          // This is a bit hacky but works without deep piping into ffmpeg.ts for now
           // Ideally we send an IPC message to cancel current but keep queue running
           const skipChecker = setInterval(() => {
             if (shouldSkipRef.current) {
-               window.api.cancelEncoding().then(() => {
-                 cleanup()
-                 setEncodingLogs((prev) => [...prev, `Skipped: ${file.name}`])
-                 resolve() // Resolve properly to continue loop
-               })
-               clearInterval(skipChecker)
+              window.api.cancelEncoding().then(() => {
+                cleanup()
+                setEncodingLogs((prev) => [...prev, `Skipped: ${file.name}`])
+                resolve() // Resolve properly to continue loop
+              })
+              clearInterval(skipChecker)
             }
           }, 500)
-          
-           // Ensure interval clears on completion/error
-           const originalCleanup = cleanup
-           // @ts-ignore - overriding localized function
-           cleanup = () => {
-             clearInterval(skipChecker)
-             originalCleanup()
-           }
+
+          // Ensure interval clears on completion/error
+          const originalCleanup = cleanup
+          // @ts-ignore - overriding localized function
+          cleanup = () => {
+            clearInterval(skipChecker)
+            originalCleanup()
+          }
         })
 
         if (!shouldSkipRef.current) {
-           setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
+          setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
         }
 
         // Remove from queue and selection upon success OR SKIP
@@ -384,25 +392,25 @@ function App(): React.JSX.Element {
       const content = JSON.stringify(filesToSave, null, 2)
       await window.api.saveTextFile(content, 'queue.json')
     } catch (error) {
-       console.error('Failed to save queue', error)
+      console.error('Failed to save queue', error)
     }
   }
 
   const handleLoadQueue = async (): Promise<void> => {
-      try {
-        const content = await window.api.readTextFile()
-        if (content) {
-            const files = JSON.parse(content) as VideoFile[]
-            // Validate basic structure
-            if (Array.isArray(files) && files.every(f => f.path && f.name)) {
-                setVideoFiles(files)
-                setSelectedFiles(files) // Auto select loaded
-                setIsQueueOpen(true)
-            }
+    try {
+      const content = await window.api.readTextFile()
+      if (content) {
+        const files = JSON.parse(content) as VideoFile[]
+        // Validate basic structure
+        if (Array.isArray(files) && files.every((f) => f.path && f.name)) {
+          setVideoFiles(files)
+          setSelectedFiles(files) // Auto select loaded
+          setIsQueueOpen(true)
         }
-      } catch (error) {
-          console.error('Failed to load queue', error)
       }
+    } catch (error) {
+      console.error('Failed to load queue', error)
+    }
   }
 
   // Listen for progress and logs
@@ -423,9 +431,10 @@ function App(): React.JSX.Element {
   }, [])
 
   // Calculate overall progress
-  const overallProgress = totalQueueSize > 0 
-    ? Math.min(100, ((completedFilesCount + (encodingProgress / 100)) / totalQueueSize) * 100) 
-    : 0
+  const overallProgress =
+    totalQueueSize > 0
+      ? Math.min(100, ((completedFilesCount + encodingProgress / 100) / totalQueueSize) * 100)
+      : 0
 
   // Calculate ETA
   useEffect(() => {
@@ -438,18 +447,18 @@ function App(): React.JSX.Element {
       if (ms < 0) return '0s'
       const seconds = Math.floor((ms / 1000) % 60)
       const minutes = Math.floor((ms / (1000 * 60)) % 60)
-      const hours = Math.floor((ms / (1000 * 60 * 60)))
-      
+      const hours = Math.floor(ms / (1000 * 60 * 60))
+
       if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`
       if (minutes > 0) return `${minutes}m ${seconds}s`
       return `${seconds}s`
     }
 
     const updateEta = (): void => {
-        const elapsed = Date.now() - queueStartTime
-        const estimatedTotal = elapsed / (overallProgress / 100)
-        const remaining = estimatedTotal - elapsed
-        setEta(formatDuration(remaining))
+      const elapsed = Date.now() - queueStartTime
+      const estimatedTotal = elapsed / (overallProgress / 100)
+      const remaining = estimatedTotal - elapsed
+      setEta(formatDuration(remaining))
     }
 
     updateEta() // Initial update
