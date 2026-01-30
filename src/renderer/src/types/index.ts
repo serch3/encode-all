@@ -72,6 +72,10 @@ export interface EncodingOptions {
   preset: string
   threads: number
   trackSelection: string
+  twoPass: boolean
+  subtitleMode: string
+  videoBitrate: number
+  rateControlMode: 'crf' | 'bitrate'
 }
 
 /**
@@ -91,4 +95,8 @@ export interface EncodingProfile {
   crf: number
   preset: string
   renamePattern: string
+  twoPass: boolean
+  subtitleMode: string
+  videoBitrate: number
+  rateControlMode: 'crf' | 'bitrate'
 }

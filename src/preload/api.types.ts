@@ -45,4 +45,8 @@ export interface EncodingOptions {
   ffmpegPath?: string
   logDirectory?: string
   jobTimestamp?: string
+  twoPass: boolean
+  subtitleMode: string
+  videoBitrate: number
+  rateControlMode: 'crf' | 'bitrate'
 }
