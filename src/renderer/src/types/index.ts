@@ -73,3 +73,22 @@ export interface EncodingOptions {
   threads: number
   trackSelection: string
 }
+
+/**
+ * Saved encoding profile
+ */
+export interface EncodingProfile {
+  id: string
+  name: string
+  container: string
+  videoCodec: string
+  audioCodec: string
+  audioChannels: string
+  audioBitrate: number
+  volumeDb: number
+  threads: number
+  trackSelection: string
+  crf: number
+  preset: string
+  renamePattern: string
+}

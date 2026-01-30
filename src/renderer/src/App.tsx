@@ -17,9 +17,9 @@ import {
 import Layout from './components/layout'
 import { SettingsPage, GeneralPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
-import { QueueDrawer } from './components/encoding'
+import { QueueDrawer, ProfileManager } from './components/encoding'
 import { buildFilenameFromPattern } from './utils/pattern'
-import type { VideoFile, PatternTokens, EncodingOptions } from './types'
+import type { VideoFile, PatternTokens, EncodingOptions, EncodingProfile } from './types'
 
 function App(): React.JSX.Element {
   // for debugging purposes
@@ -76,6 +76,7 @@ function App(): React.JSX.Element {
   const [crf, setCrf] = useLocalStorage<number>('config-crf', 23)
   const [preset, setPreset] = useLocalStorage<string>('config-preset', 'medium')
   const [logDirectory, setLogDirectory] = useLocalStorage<string>('logDirectory', '')
+  const [savedProfiles, setSavedProfiles] = useLocalStorage<EncodingProfile[]>('saved-profiles', [])
 
   const isNvenc = videoCodec.includes('nvenc')
   const isEncodingRef = useRef(false)
@@ -490,6 +491,28 @@ function App(): React.JSX.Element {
     }
   }
 
+  const handleLoadProfile = (profile: EncodingProfile): void => {
+    setContainer(profile.container)
+    setVideoCodec(profile.videoCodec)
+    setAudioCodec(profile.audioCodec)
+    setAudioChannels(profile.audioChannels)
+    setAudioBitrate(profile.audioBitrate)
+    setVolumeDb(profile.volumeDb)
+    setThreads(profile.threads)
+    setTrackSelection(profile.trackSelection)
+    setCrf(profile.crf)
+    setPreset(profile.preset)
+    setRenamePattern(profile.renamePattern)
+  }
+
+  const handleSaveProfile = (profile: EncodingProfile): void => {
+    setSavedProfiles([...savedProfiles, profile])
+  }
+
+  const handleDeleteProfile = (id: string): void => {
+    setSavedProfiles(savedProfiles.filter((p) => p.id !== id))
+  }
+
   // Generate preview of filename pattern
   const getPreviewFilename = (): string => {
     const tokens: PatternTokens = {
@@ -608,6 +631,25 @@ function App(): React.JSX.Element {
                 </Card>
                 <Card>
                   <CardBody className="flex flex-col gap-4">
+                    <ProfileManager
+                      currentSettings={{
+                        container,
+                        videoCodec,
+                        audioCodec,
+                        audioChannels,
+                        audioBitrate,
+                        volumeDb,
+                        threads,
+                        trackSelection,
+                        crf,
+                        preset,
+                        renamePattern
+                      }}
+                      profiles={savedProfiles}
+                      onLoadProfile={handleLoadProfile}
+                      onSaveProfile={handleSaveProfile}
+                      onDeleteProfile={handleDeleteProfile}
+                    />
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <Select
                         label="Container"
