@@ -1,7 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { readdirSync, statSync } from 'fs'
+import { readdirSync, statSync, writeFileSync, readFileSync } from 'fs'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import icon from '../../resources/icon.png?asset'
@@ -238,8 +238,8 @@ app.whenReady().then(() => {
       })
 
       if (filePath) {
-        // Use fs promises here properly, or require fs/promises
-        require('fs').writeFileSync(filePath, content, 'utf-8')
+        // Use fs imports
+        writeFileSync(filePath, content, 'utf-8')
         return true
       }
       return false
@@ -254,7 +254,7 @@ app.whenReady().then(() => {
     })
 
     if (filePaths && filePaths.length > 0) {
-      return require('fs').readFileSync(filePaths[0], 'utf-8')
+      return readFileSync(filePaths[0], 'utf-8')
     }
     return null
   })

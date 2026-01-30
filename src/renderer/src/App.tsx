@@ -1,23 +1,12 @@
-import { Button, Card, CardBody, Input, Select, SelectItem } from '@heroui/react'
+import { Button, Card, CardBody, Input } from '@heroui/react'
 import { useState, useEffect, useRef } from 'react'
 import { ArrowUpToLine, FolderOpen, History } from 'lucide-react'
 import { useLocalStorage } from './hooks/useLocalStorage'
-import {
-  boxIcon as BoxIcon,
-  cpuIcon as CpuIcon,
-  editIcon as EditIcon,
-  musicIcon as MusicIcon,
-  settingIcon as SettingIcon,
-  videoIcon as VideoIcon,
-  volumeIcon as VolumeIcon,
-  layerIcon as LayerIcon,
-  waveIcon as WaveIcon,
-  folderIcon as FolderIcon
-} from './components/shared/icons'
+import { editIcon as EditIcon, folderIcon as FolderIcon } from './components/shared/icons'
 import Layout from './components/layout'
 import { SettingsPage, GeneralPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
-import { QueueDrawer, ProfileManager } from './components/encoding'
+import { QueueDrawer, ProfileManager, EncodingSettings } from './components/encoding'
 import { buildFilenameFromPattern } from './utils/pattern'
 import type { VideoFile, PatternTokens, EncodingOptions, EncodingProfile } from './types'
 
@@ -75,6 +64,13 @@ function App(): React.JSX.Element {
   )
   const [crf, setCrf] = useLocalStorage<number>('config-crf', 23)
   const [preset, setPreset] = useLocalStorage<string>('config-preset', 'medium')
+  const [twoPass, setTwoPass] = useLocalStorage<boolean>('config-twoPass', false)
+  const [subtitleMode, setSubtitleMode] = useLocalStorage<string>('config-subtitleMode', 'none')
+  const [videoBitrate, setVideoBitrate] = useLocalStorage<number>('config-videoBitrate', 2500)
+  const [rateControlMode, setRateControlMode] = useLocalStorage<'crf' | 'bitrate'>(
+    'config-rateControlMode',
+    'crf'
+  )
   const [logDirectory, setLogDirectory] = useLocalStorage<string>('logDirectory', '')
   const [savedProfiles, setSavedProfiles] = useLocalStorage<EncodingProfile[]>('saved-profiles', [])
 
@@ -289,7 +285,11 @@ function App(): React.JSX.Element {
         trackSelection,
         ffmpegPath,
         logDirectory,
-        jobTimestamp
+        jobTimestamp,
+        twoPass,
+        subtitleMode,
+        videoBitrate,
+        rateControlMode
       } as EncodingOptions
 
       try {
@@ -503,6 +503,10 @@ function App(): React.JSX.Element {
     setCrf(profile.crf)
     setPreset(profile.preset)
     setRenamePattern(profile.renamePattern)
+    setVideoBitrate(profile.videoBitrate ?? 2500)
+    setRateControlMode(profile.rateControlMode ?? 'crf')
+    setTwoPass(profile.twoPass ?? false)
+    setSubtitleMode(profile.subtitleMode ?? 'none')
   }
 
   const handleSaveProfile = (profile: EncodingProfile): void => {
@@ -643,150 +647,51 @@ function App(): React.JSX.Element {
                         trackSelection,
                         crf,
                         preset,
-                        renamePattern
+                        renamePatter,
+                        videoBitrate,
+                        rateControlModen,
+                        twoPass,
+                        subtitleMode
                       }}
                       profiles={savedProfiles}
                       onLoadProfile={handleLoadProfile}
                       onSaveProfile={handleSaveProfile}
                       onDeleteProfile={handleDeleteProfile}
                     />
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <Select
-                        label="Container"
-                        startContent={<BoxIcon className="w-5 h-5 text-default-400" />}
-                        selectedKeys={[container]}
-                        onSelectionChange={(keys) => setContainer(Array.from(keys)[0] as string)}
-                        isDisabled={isEncoding}
-                      >
-                        <SelectItem key="mp4">MP4</SelectItem>
-                        <SelectItem key="mkv">MKV</SelectItem>
-                        <SelectItem key="webm">WebM</SelectItem>
-                        <SelectItem key="mov">MOV</SelectItem>
-                      </Select>
-                      <Select
-                        label="Video Codec"
-                        startContent={<VideoIcon className="w-5 h-5 text-default-400" />}
-                        selectedKeys={[videoCodec]}
-                        onSelectionChange={(keys) => setVideoCodec(Array.from(keys)[0] as string)}
-                        isDisabled={isEncoding}
-                      >
-                        {[
-                          { key: 'libx264', label: 'H.264 (libx264)' },
-                          { key: 'libx265', label: 'H.265 (libx265)' },
-                          { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
-                          ...(hasNvidiaGpu
-                            ? [
-                                { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
-                                { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
-                                { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
-                              ]
-                            : [])
-                        ].map((codec) => (
-                          <SelectItem key={codec.key}>{codec.label}</SelectItem>
-                        ))}
-                      </Select>
-                      <Select
-                        label="Preset"
-                        startContent={<CpuIcon className="w-5 h-5 text-default-400" />}
-                        selectedKeys={[preset]}
-                        onSelectionChange={(keys) => setPreset(Array.from(keys)[0] as string)}
-                        description="Speed vs Compression efficiency"
-                        isDisabled={isEncoding}
-                      >
-                        <SelectItem key="ultrafast">Ultrafast</SelectItem>
-                        <SelectItem key="superfast">Superfast</SelectItem>
-                        <SelectItem key="veryfast">Veryfast</SelectItem>
-                        <SelectItem key="faster">Faster</SelectItem>
-                        <SelectItem key="fast">Fast</SelectItem>
-                        <SelectItem key="medium">Medium</SelectItem>
-                        <SelectItem key="slow">Slow</SelectItem>
-                        <SelectItem key="slower">Slower</SelectItem>
-                        <SelectItem key="veryslow">Veryslow</SelectItem>
-                      </Select>
-                      <Input
-                        label={isNvenc ? 'Quality (CQ)' : 'Quality (CRF)'}
-                        startContent={<SettingIcon className="w-5 h-5 text-default-400" />}
-                        type="number"
-                        value={crf.toString()}
-                        onChange={(e) => setCrf(parseInt(e.target.value) || 23)}
-                        description={
-                          isNvenc
-                            ? '1-51. Lower is better quality.'
-                            : '0-51. Lower is better quality. 18-28 is good.'
-                        }
-                        isDisabled={isEncoding}
-                      />
-                      <Select
-                        label="Audio Codec"
-                        startContent={<MusicIcon className="w-5 h-5 text-default-400" />}
-                        selectedKeys={[audioCodec]}
-                        onSelectionChange={(keys) => setAudioCodec(Array.from(keys)[0] as string)}
-                        isDisabled={isEncoding}
-                      >
-                        <SelectItem key="aac">AAC</SelectItem>
-                        <SelectItem key="copy">Copy</SelectItem>
-                        <SelectItem key="libopus">Opus</SelectItem>
-                      </Select>
-                      <Input
-                        label="Threads"
-                        startContent={<CpuIcon className="w-5 h-5 text-default-400" />}
-                        type="number"
-                        value={threads.toString()}
-                        onChange={(e) => setThreads(parseInt(e.target.value) || 0)}
-                        description="0 = auto"
-                        isDisabled={isEncoding}
-                      />
-                      <Select
-                        label="Audio Channels"
-                        startContent={<VolumeIcon className="w-5 h-5 text-default-400" />}
-                        selectedKeys={[audioChannels]}
-                        onSelectionChange={(keys) =>
-                          setAudioChannels(Array.from(keys)[0] as string)
-                        }
-                        isDisabled={audioCodec === 'copy' || isEncoding}
-                      >
-                        <SelectItem key="same">Same</SelectItem>
-                        <SelectItem key="mono">Mono</SelectItem>
-                        <SelectItem key="stereo">Stereo</SelectItem>
-                        <SelectItem key="5.1">5.1</SelectItem>
-                      </Select>
-                      <Input
-                        label="Audio Bitrate (kbps)"
-                        startContent={<WaveIcon className="w-5 h-5 text-default-400" />}
-                        type="number"
-                        value={audioBitrate.toString()}
-                        onChange={(e) => setAudioBitrate(parseInt(e.target.value) || 0)}
-                        description="Common: 256-320k (music), 192k (e.g, youtube)"
-                        isDisabled={audioCodec === 'copy' || isEncoding}
-                      />
-                      <Input
-                        label="Volume Adjust (dB)"
-                        startContent={<VolumeIcon className="w-5 h-5 text-default-400" />}
-                        type="number"
-                        value={volumeDb.toString()}
-                        onChange={(e) => setVolumeDb(parseFloat(e.target.value) || 0)}
-                        description="Negative to reduce, positive to boost"
-                        isDisabled={audioCodec === 'copy' || isEncoding}
-                      />
-                      <Select
-                        label="Track Selection"
-                        startContent={<LayerIcon className="w-5 h-5 text-default-400" />}
-                        selectedKeys={[trackSelection]}
-                        onSelectionChange={(keys) =>
-                          setTrackSelection(Array.from(keys)[0] as string)
-                        }
-                        description={
-                          container !== 'mkv' && trackSelection === 'all'
-                            ? 'Some formats may not support all stream types'
-                            : 'Select which streams to include'
-                        }
-                        isDisabled={isEncoding}
-                      >
-                        <SelectItem key="auto">Auto (Best Video & Audio)</SelectItem>
-                        <SelectItem key="all_audio">All Audio Tracks</SelectItem>
-                        <SelectItem key="all">All Tracks (Audio/Video/Subs)</SelectItem>
-                      </Select>
-                    </div>
+                    <EncodingSettings
+                      container={container}
+                      setContainer={setContainer}
+                      videoCodec={videoCodec}
+                      setVideoCodec={setVideoCodec}
+                      audioCodec={audioCodec}
+                      setAudioCodec={setAudioCodec}
+                      audioChannels={audioChannels}
+                      setAudioChannels={setAudioChannels}
+                      audioBitrate={audioBitrate}
+                      setAudioBitrate={setAudioBitrate}
+                      volumeDb={volumeDb}
+                      setVolumeDb={setVolumeDb}
+                      crf={crf}
+                      setCrf={setCrf}
+                      preset={preset}
+                      setPreset={setPreset}
+                      threads={threads}
+                      setThreads={setThreads}
+                      trackSelection={trackSelection}
+                      setTrackSelection={setTrackSelection}
+                      videoBitrate={videoBitrate}
+                      setVideoBitrate={setVideoBitrate}
+                      rateControlMode={rateControlMode}
+                      setRateControlMode={setRateControlMode}
+                      twoPass={twoPass}
+                      setTwoPass={setTwoPass}
+                      subtitleMode={subtitleMode}
+                      setSubtitleMode={setSubtitleMode}
+                      isEncoding={isEncoding}
+                      hasNvidiaGpu={hasNvidiaGpu}
+                      isNvenc={isNvenc}
+                    />
+
                     <div className="flex flex-col gap-2">
                       <div className="flex gap-2 items-end">
                         <Input
