@@ -647,9 +647,9 @@ function App(): React.JSX.Element {
                         trackSelection,
                         crf,
                         preset,
-                        renamePatter,
+                        renamePattern,
                         videoBitrate,
-                        rateControlModen,
+                        rateControlMode,
                         twoPass,
                         subtitleMode
                       }}
