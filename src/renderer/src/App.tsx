@@ -4,7 +4,7 @@ import { ArrowUpToLine, FolderOpen, History } from 'lucide-react'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { editIcon as EditIcon, folderIcon as FolderIcon } from './components/shared/icons'
 import Layout from './components/layout'
-import { SettingsPage, GeneralPage } from './components/pages'
+import { SettingsPage, GeneralPage, AboutPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
 import { QueueDrawer, ProfileManager, EncodingSettings } from './components/encoding'
 import { buildFilenameFromPattern } from './utils/pattern'
@@ -774,7 +774,7 @@ function App(): React.JSX.Element {
             onSelectLogDirectory={handleSelectLogFolder}
           />
         )}
-        {active === 'about' && <div>About this app…</div>}
+        {active === 'about' && <AboutPage />}
       </Layout>
 
       <QueueDrawer
