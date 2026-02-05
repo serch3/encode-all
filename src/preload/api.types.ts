@@ -17,12 +17,12 @@ export interface CustomAPI {
   checkNvidiaSupport: () => Promise<boolean>
   selectFfmpegPath: () => Promise<string | null>
   openExternal: (url: string) => Promise<void>
-  startEncoding: (options: EncodingOptions) => Promise<void>
-  cancelEncoding: () => Promise<void>
-  onEncodingProgress: (callback: (progress: number) => void) => () => void
-  onEncodingLog: (callback: (log: string) => void) => () => void
-  onEncodingComplete: (callback: () => void) => () => void
-  onEncodingError: (callback: (error: string) => void) => () => void
+  startEncoding: (options: EncodingOptions & { jobId?: string }) => Promise<void>
+  cancelEncoding: (jobId?: string) => Promise<void>
+  onEncodingProgress: (callback: (payload: EncodingProgressPayload) => void) => () => void
+  onEncodingLog: (callback: (payload: EncodingLogPayload) => void) => () => void
+  onEncodingComplete: (callback: (payload: EncodingCompletePayload) => void) => () => void
+  onEncodingError: (callback: (payload: EncodingErrorPayload) => void) => () => void
   removeEncodingListeners: () => void
   pathJoin: (...paths: string[]) => Promise<string>
   saveTextFile: (content: string, defaultName?: string) => Promise<boolean>
@@ -49,4 +49,24 @@ export interface EncodingOptions {
   subtitleMode: string
   videoBitrate: number
   rateControlMode: 'crf' | 'bitrate'
+}
+
+export interface EncodingProgressPayload {
+  jobId: string
+  progress: number
+}
+
+export interface EncodingLogPayload {
+  jobId: string
+  log: string
+}
+
+export interface EncodingCompletePayload {
+  jobId: string
+  outputPath?: string
+}
+
+export interface EncodingErrorPayload {
+  jobId: string
+  error: string
 }

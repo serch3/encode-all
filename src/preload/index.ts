@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import { EncodingOptions } from './api.types'
+import {
+  EncodingOptions,
+  EncodingProgressPayload,
+  EncodingLogPayload,
+  EncodingCompletePayload,
+  EncodingErrorPayload
+} from './api.types'
 import { join } from 'path'
 
 // Custom APIs for renderer
@@ -17,26 +23,30 @@ const api = {
   openExternal: (url: string) => electronAPI.ipcRenderer.invoke('open-external', url),
 
   // Encoding APIs
-  startEncoding: (options: EncodingOptions) =>
+  startEncoding: (options: EncodingOptions & { jobId?: string }) =>
     electronAPI.ipcRenderer.invoke('start-encoding', options),
-  cancelEncoding: () => electronAPI.ipcRenderer.invoke('cancel-encoding'),
-  onEncodingProgress: (callback: (progress: number) => void) => {
-    const subscription = (_event: IpcRendererEvent, progress: number) => callback(progress)
+  cancelEncoding: (jobId?: string) => electronAPI.ipcRenderer.invoke('cancel-encoding', jobId),
+  onEncodingProgress: (callback: (payload: EncodingProgressPayload) => void) => {
+    const subscription = (_event: IpcRendererEvent, payload: EncodingProgressPayload) =>
+      callback(payload)
     ipcRenderer.on('encoding-progress', subscription)
     return () => ipcRenderer.removeListener('encoding-progress', subscription)
   },
-  onEncodingLog: (callback: (log: string) => void) => {
-    const subscription = (_event: IpcRendererEvent, log: string) => callback(log)
+  onEncodingLog: (callback: (payload: EncodingLogPayload) => void) => {
+    const subscription = (_event: IpcRendererEvent, payload: EncodingLogPayload) =>
+      callback(payload)
     ipcRenderer.on('encoding-log', subscription)
     return () => ipcRenderer.removeListener('encoding-log', subscription)
   },
-  onEncodingComplete: (callback: () => void) => {
-    const subscription = () => callback()
+  onEncodingComplete: (callback: (payload: EncodingCompletePayload) => void) => {
+    const subscription = (_event: IpcRendererEvent, payload: EncodingCompletePayload) =>
+      callback(payload)
     ipcRenderer.on('encoding-complete', subscription)
     return () => ipcRenderer.removeListener('encoding-complete', subscription)
   },
-  onEncodingError: (callback: (error: string) => void) => {
-    const subscription = (_event: IpcRendererEvent, error: string) => callback(error)
+  onEncodingError: (callback: (payload: EncodingErrorPayload) => void) => {
+    const subscription = (_event: IpcRendererEvent, payload: EncodingErrorPayload) =>
+      callback(payload)
     ipcRenderer.on('encoding-error', subscription)
     return () => ipcRenderer.removeListener('encoding-error', subscription)
   },
