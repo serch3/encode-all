@@ -217,15 +217,15 @@ app.whenReady().then(() => {
     shell.openExternal(url)
   })
 
-  ipcMain.handle('start-encoding', async (event, options: EncodingOptions) => {
+  ipcMain.handle('start-encoding', async (event, options: EncodingOptions & { jobId?: string }) => {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (window) {
       startEncoding(options, window)
     }
   })
 
-  ipcMain.handle('cancel-encoding', async () => {
-    cancelEncoding()
+  ipcMain.handle('cancel-encoding', async (_, jobId?: string) => {
+    cancelEncoding(jobId)
   })
 
   ipcMain.handle(

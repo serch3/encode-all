@@ -4,22 +4,52 @@ import { createWriteStream, WriteStream, mkdirSync, existsSync } from 'fs'
 import { join, basename, dirname } from 'path'
 import { EncodingOptions } from '../preload/api.types'
 
-let ffmpegProcess: ChildProcess | null = null
-let logStream: WriteStream | null = null
-let powerSaveBlockerId: number | null = null
+type JobRecord = {
+  id: string
+  process: ChildProcess | null
+  logStream: WriteStream | null
+  duration: number
+  outputPath: string
+}
 
-export function cancelEncoding(): void {
-  if (ffmpegProcess) {
-    ffmpegProcess.kill()
-    ffmpegProcess = null
+const jobs = new Map<string, JobRecord>()
+let powerSaveBlockerId: number | null = null
+let powerSaveBlockerRefs = 0
+
+function retainPowerSaveBlocker(): void {
+  powerSaveBlockerRefs += 1
+  if (powerSaveBlockerId === null) {
+    powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension')
   }
-  if (logStream) {
-    logStream.end()
-    logStream = null
-  }
-  if (powerSaveBlockerId !== null) {
+}
+
+function releasePowerSaveBlocker(): void {
+  powerSaveBlockerRefs = Math.max(0, powerSaveBlockerRefs - 1)
+  if (powerSaveBlockerRefs === 0 && powerSaveBlockerId !== null) {
     powerSaveBlocker.stop(powerSaveBlockerId)
     powerSaveBlockerId = null
+  }
+}
+
+export function cancelEncoding(jobId?: string): void {
+  const cancelJob = (job: JobRecord): void => {
+    job.process?.kill()
+    job.process = null
+    job.logStream?.end()
+    job.logStream = null
+    releasePowerSaveBlocker()
+    jobs.delete(job.id)
+  }
+
+  if (jobId) {
+    const job = jobs.get(jobId)
+    if (job) cancelJob(job)
+    return
+  }
+
+  // Cancel all jobs
+  for (const job of jobs.values()) {
+    cancelJob(job)
   }
 }
 
@@ -28,16 +58,17 @@ function runFfmpegCommand(
   executable: string,
   args: string[],
   mainWindow: BrowserWindow,
+  job: JobRecord,
   onProgress: (progress: number) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    ffmpegProcess = spawn(executable, args)
+    job.process = spawn(executable, args)
     let duration = 0
 
-    ffmpegProcess.stderr?.on('data', (data) => {
+    job.process.stderr?.on('data', (data) => {
       const str = data.toString()
-      logStream?.write(str)
-      mainWindow.webContents.send('encoding-log', str)
+      job.logStream?.write(str)
+      mainWindow.webContents.send('encoding-log', { jobId: job.id, log: str })
 
       // Parse duration
       if (!duration) {
@@ -47,6 +78,7 @@ function runFfmpegCommand(
           const minutes = parseFloat(durationMatch[2])
           const seconds = parseFloat(durationMatch[3])
           duration = hours * 3600 + minutes * 60 + seconds
+          job.duration = duration
         }
       }
 
@@ -62,9 +94,7 @@ function runFfmpegCommand(
       }
     })
 
-    ffmpegProcess.on('close', (code) => {
-      // Don't set ffmpegProcess to null here if we might run another pass
-      // But we must resolve/reject
+    job.process.on('close', (code) => {
       if (code === 0) {
         resolve()
       } else {
@@ -72,14 +102,14 @@ function runFfmpegCommand(
       }
     })
 
-    ffmpegProcess.on('error', (err) => {
+    job.process.on('error', (err) => {
       reject(err)
     })
   })
 }
 
 export async function startEncoding(
-  options: EncodingOptions,
+  options: EncodingOptions & { jobId?: string },
   mainWindow: BrowserWindow
 ): Promise<void> {
   const {
@@ -100,8 +130,21 @@ export async function startEncoding(
     twoPass,
     subtitleMode,
     videoBitrate,
-    rateControlMode
+    rateControlMode,
+    jobId: maybeJobId
   } = options
+
+  const jobId = maybeJobId || pathHash(`${inputPath}-${outputPath}-${Date.now()}`)
+
+  // Create job record
+  const job: JobRecord = {
+    id: jobId,
+    process: null,
+    logStream: null,
+    duration: 0,
+    outputPath
+  }
+  jobs.set(jobId, job)
 
   // Base arguments
   const baseArgs = ['-y', '-i', inputPath]
@@ -194,12 +237,10 @@ export async function startEncoding(
   } else {
     logPath = `${outputPath}.log`
   }
-  logStream = createWriteStream(logPath)
+  job.logStream = createWriteStream(logPath)
 
   // Prevent system sleep during encoding
-  if (powerSaveBlockerId === null) {
-    powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension')
-  }
+  retainPowerSaveBlocker()
 
   const executable = ffmpegPath || 'ffmpeg'
 
@@ -225,9 +266,10 @@ export async function startEncoding(
         process.platform === 'win32' ? 'NUL' : '/dev/null'
       ]
 
-      await runFfmpegCommand(executable, pass1Args, mainWindow, (p) => {
-        mainWindow.webContents.send('encoding-progress', p / 2)
-        mainWindow.setProgressBar(p / 200)
+      await runFfmpegCommand(executable, pass1Args, mainWindow, job, (p) => {
+        const total = p / 2
+        mainWindow.webContents.send('encoding-progress', { jobId, progress: total })
+        mainWindow.setProgressBar(total / 100)
       })
 
       // Pass 2
@@ -244,9 +286,9 @@ export async function startEncoding(
         outputPath
       ]
 
-      await runFfmpegCommand(executable, pass2Args, mainWindow, (p) => {
+      await runFfmpegCommand(executable, pass2Args, mainWindow, job, (p) => {
         const total = 50 + p / 2
-        mainWindow.webContents.send('encoding-progress', total)
+        mainWindow.webContents.send('encoding-progress', { jobId, progress: total })
         mainWindow.setProgressBar(total / 100)
       })
 
@@ -263,32 +305,28 @@ export async function startEncoding(
         outputPath
       ]
 
-      await runFfmpegCommand(executable, args, mainWindow, (p) => {
-        mainWindow.webContents.send('encoding-progress', p)
+      await runFfmpegCommand(executable, args, mainWindow, job, (p) => {
+        mainWindow.webContents.send('encoding-progress', { jobId, progress: p })
         mainWindow.setProgressBar(p / 100)
       })
     }
 
     // Success
-    logStream?.end()
-    logStream = null
-    ffmpegProcess = null
-    if (powerSaveBlockerId !== null) {
-      powerSaveBlocker.stop(powerSaveBlockerId)
-      powerSaveBlockerId = null
-    }
-    mainWindow.webContents.send('encoding-complete')
+    job.logStream?.end()
+    job.logStream = null
+    job.process = null
+    releasePowerSaveBlocker()
+    jobs.delete(jobId)
+    mainWindow.webContents.send('encoding-complete', { jobId, outputPath })
     mainWindow.setProgressBar(-1)
   } catch (error) {
-    logStream?.end()
-    logStream = null
-    ffmpegProcess = null
-    if (powerSaveBlockerId !== null) {
-      powerSaveBlocker.stop(powerSaveBlockerId)
-      powerSaveBlockerId = null
-    }
+    job.logStream?.end()
+    job.logStream = null
+    job.process = null
+    releasePowerSaveBlocker()
+    jobs.delete(jobId)
     const msg = error instanceof Error ? error.message : 'Unknown error'
-    mainWindow.webContents.send('encoding-error', msg)
+    mainWindow.webContents.send('encoding-error', { jobId, error: msg })
     mainWindow.setProgressBar(1, { mode: 'error' })
   }
 }
