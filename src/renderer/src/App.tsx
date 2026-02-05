@@ -8,7 +8,14 @@ import { SettingsPage, GeneralPage, AboutPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
 import { QueueDrawer, ProfileManager, EncodingSettings } from './components/encoding'
 import { buildFilenameFromPattern } from './utils/pattern'
-import type { VideoFile, PatternTokens, EncodingOptions, EncodingProfile } from './types'
+import type {
+  VideoFile,
+  PatternTokens,
+  EncodingOptions,
+  EncodingProfile,
+  QueuedJob,
+  JobStatus
+} from './types'
 
 function App(): React.JSX.Element {
   // for debugging purposes
@@ -26,8 +33,19 @@ function App(): React.JSX.Element {
 
   // Queue related state
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false)
-  const [videoFiles, setVideoFiles] = useState<VideoFile[]>([])
-  const [selectedFiles, setSelectedFiles] = useState<VideoFile[]>([])
+  const [queuedJobs, setQueuedJobs] = useLocalStorage<QueuedJob[]>('queue-state', [])
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([])
+  const [maxRetries, setMaxRetries] = useLocalStorage<number>('queue-max-retries', 2)
+  const [maxConcurrency, setMaxConcurrency] = useLocalStorage<number>('queue-max-concurrency', 1)
+
+  // On boot, reset any in-progress jobs to pending so they can resume
+  useEffect(() => {
+    setQueuedJobs((prev) =>
+      prev.map((job) => (job.status === 'encoding' ? { ...job, status: 'pending', progress: 0 } : job))
+    )
+    // we intentionally run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Encoding state
   const [encodingProgress, setEncodingProgress] = useState<number>(0)
@@ -180,14 +198,29 @@ function App(): React.JSX.Element {
         modified: file.lastModified
       }))
 
-    if (newVideoFiles.length > 0) {
-      setVideoFiles((prev) => {
-        const existingPaths = new Set(prev.map((f) => f.path))
-        const uniqueNewFiles = newVideoFiles.filter((f) => !existingPaths.has(f.path))
-        return [...prev, ...uniqueNewFiles]
-      })
+    enqueueFiles(newVideoFiles)
+  }
+
+  const enqueueFiles = (files: VideoFile[]): void => {
+    if (files.length === 0) return
+    setQueuedJobs((prev) => {
+      const existingPaths = new Set(prev.map((j) => j.file.path))
+      const newJobs: QueuedJob[] = files
+        .filter((f) => !existingPaths.has(f.path))
+        .map((file) => ({
+          id: crypto.randomUUID(),
+          file,
+          status: 'pending',
+          progress: 0,
+          attempts: 0,
+          maxRetries,
+          overrides: undefined
+        }))
+      if (newJobs.length === 0) return prev
+      setSelectedJobIds((ids) => [...ids, ...newJobs.map((j) => j.id)])
       setIsQueueOpen(true)
-    }
+      return [...prev, ...newJobs]
+    })
   }
 
   // Queue functions
@@ -196,8 +229,7 @@ function App(): React.JSX.Element {
       const folderPath = await window.api.selectFolder()
       if (folderPath) {
         const files = await window.api.readVideoFiles(folderPath)
-        setVideoFiles(files)
-        setIsQueueOpen(true)
+        enqueueFiles(files)
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to select folder'
@@ -206,62 +238,102 @@ function App(): React.JSX.Element {
     }
   }
 
-  const handleFileSelect = (file: VideoFile): void => {
-    setSelectedFiles((prev) => {
-      const isAlreadySelected = prev.some((selected) => selected.path === file.path)
+  const handleFileSelect = (jobId: string): void => {
+    setSelectedJobIds((prev) => {
+      const isAlreadySelected = prev.includes(jobId)
       if (isAlreadySelected) {
-        return prev.filter((selected) => selected.path !== file.path)
+        return prev.filter((id) => id !== jobId)
       }
-      return [...prev, file]
+      return [...prev, jobId]
     })
   }
 
   const handleSelectAll = (): void => {
-    setSelectedFiles(videoFiles)
+    setSelectedJobIds(queuedJobs.map((j) => j.id))
   }
 
   const handleClearSelection = (): void => {
-    setSelectedFiles([])
+    setSelectedJobIds([])
+  }
+
+  const handleRemoveJobs = (jobIdsToRemove: string[]): void => {
+    setQueuedJobs((prev) => prev.filter((job) => !jobIdsToRemove.includes(job.id)))
+    setSelectedJobIds((prev) => prev.filter((id) => !jobIdsToRemove.includes(id)))
   }
 
   const processQueue = async (): Promise<void> => {
+    const jobsToRun = queuedJobs.filter((job) =>
+      selectedJobIds.includes(job.id) && (job.status === 'pending' || job.status === 'error')
+    )
+    if (jobsToRun.length === 0) return
+
     isEncodingRef.current = true
     setIsEncoding(true)
-    setTotalQueueSize(selectedFiles.length)
     setQueueStartTime(Date.now())
     setCompletedFilesCount(0)
-
     setEncodingError(null)
     setEncodingLogs(['Starting encoding process...'])
+    setTotalQueueSize(jobsToRun.length)
+
+    // Reset any stuck encoding states
+    setQueuedJobs((prev) =>
+      prev.map((job) =>
+        selectedJobIds.includes(job.id) && job.status === 'encoding'
+          ? { ...job, status: 'pending', progress: 0 }
+          : job
+      )
+    )
 
     const now = new Date()
     const jobTimestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`
 
-    for (const file of selectedFiles) {
-      if (!isEncodingRef.current) {
-        setEncodingLogs((prev) => [...prev, 'Queue processing stopped.'])
-        break
-      }
+    const queue = [...jobsToRun]
 
-      // Reset skip flag for new file
-      shouldSkipRef.current = false
+    const runJobOnce = async (job: QueuedJob): Promise<void> => {
+      setQueuedJobs((prev) =>
+        prev.map((item) =>
+          item.id === job.id
+            ? {
+                ...item,
+                status: 'encoding',
+                progress: 0,
+                attempts: item.attempts + 1,
+                error: undefined
+              }
+            : item
+        )
+      )
 
+      const file = job.file
       setCurrentEncodingFile(file.name)
       setEncodingProgress(0)
       setEncodingLogs((prev) => [...prev, `\nProcessing: ${file.name}`])
 
-      // Calculate output filename
+      const effectiveContainer = job.overrides?.container ?? container
+      const effectiveVideoCodec = job.overrides?.videoCodec ?? videoCodec
+      const effectiveAudioCodec = job.overrides?.audioCodec ?? audioCodec
+      const effectiveAudioChannels = job.overrides?.audioChannels ?? audioChannels
+      const effectiveAudioBitrate = job.overrides?.audioBitrate ?? audioBitrate
+      const effectiveVolumeDb = job.overrides?.volumeDb ?? volumeDb
+      const effectiveCrf = job.overrides?.crf ?? crf
+      const effectivePreset = job.overrides?.preset ?? preset
+      const effectiveThreads = job.overrides?.threads ?? threads
+      const effectiveTrackSelection = job.overrides?.trackSelection ?? trackSelection
+      const effectiveTwoPass = job.overrides?.twoPass ?? twoPass
+      const effectiveSubtitleMode = job.overrides?.subtitleMode ?? subtitleMode
+      const effectiveVideoBitrate = job.overrides?.videoBitrate ?? videoBitrate
+      const effectiveRateControlMode = job.overrides?.rateControlMode ?? rateControlMode
+
       const tokens: PatternTokens = {
         name: file.name.substring(0, file.name.lastIndexOf('.')),
-        codec: videoCodec.replace('lib', ''),
-        ext: container
+        codec: effectiveVideoCodec.replace('lib', ''),
+        ext: effectiveContainer
       }
       const outputFilename = buildFilenameFromPattern(renamePattern, tokens)
-      const finalFilename = outputFilename.toLowerCase().endsWith(`.${container.toLowerCase()}`)
+      const finalFilename = outputFilename.toLowerCase().endsWith(`.${effectiveContainer.toLowerCase()}`)
         ? outputFilename
-        : `${outputFilename}.${container}`
+        : `${outputFilename}.${effectiveContainer}`
 
-      // Determine output directory: use selected directory or fallback to input file's directory
       let targetDir = outputDirectory
       if (!targetDir) {
         const lastSlash = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'))
@@ -270,127 +342,145 @@ function App(): React.JSX.Element {
 
       const outputPath = await window.api.pathJoin(targetDir, finalFilename)
 
-      const options = {
+      const options: EncodingOptions & { jobId: string } = {
         inputPath: file.path,
         outputPath,
-        container,
-        videoCodec,
-        audioCodec,
-        audioChannels,
-        audioBitrate,
-        volumeDb,
-        crf,
-        preset,
-        threads,
-        trackSelection,
+        container: effectiveContainer,
+        videoCodec: effectiveVideoCodec,
+        audioCodec: effectiveAudioCodec,
+        audioChannels: effectiveAudioChannels,
+        audioBitrate: effectiveAudioBitrate,
+        volumeDb: effectiveVolumeDb,
+        crf: effectiveCrf,
+        preset: effectivePreset,
+        threads: effectiveThreads,
+        trackSelection: effectiveTrackSelection,
         ffmpegPath,
         logDirectory,
         jobTimestamp,
-        twoPass,
-        subtitleMode,
-        videoBitrate,
-        rateControlMode
-      } as EncodingOptions
+        twoPass: effectiveTwoPass,
+        subtitleMode: effectiveSubtitleMode,
+        videoBitrate: effectiveVideoBitrate,
+        rateControlMode: effectiveRateControlMode,
+        jobId: job.id
+      }
 
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const removeComplete = window.api.onEncodingComplete(() => {
-            cleanup()
-            resolve()
-          })
-          const removeError = window.api.onEncodingError((err) => {
-            cleanup()
-            reject(new Error(err))
-          })
-
-          let cleanup = (): void => {
-            removeComplete()
-            removeError()
-          }
-
-          // Check if skip was pressed while setting up
-          if (shouldSkipRef.current) {
-            resolve()
-            return
-          }
-
-          window.api.startEncoding(options)
-
-          // Poll for skip request
-          // Ideally we send an IPC message to cancel current but keep queue running
-          const skipChecker = setInterval(() => {
-            if (shouldSkipRef.current) {
-              window.api.cancelEncoding().then(() => {
-                cleanup()
-                setEncodingLogs((prev) => [...prev, `Skipped: ${file.name}`])
-                resolve() // Resolve properly to continue loop
-              })
-              clearInterval(skipChecker)
-            }
-          }, 500)
-
-          // Ensure interval clears on completion/error
-          const originalCleanup = cleanup
-          // @ts-ignore - overriding localized function
-          cleanup = () => {
-            clearInterval(skipChecker)
-            originalCleanup()
-          }
+      await new Promise<void>((resolve, reject) => {
+        const removeComplete = window.api.onEncodingComplete(({ jobId, outputPath: completed }) => {
+          if (jobId !== job.id) return
+          cleanup()
+          setEncodingLogs((prev) => [...prev, `Completed: ${file.name}${completed ? ` -> ${completed}` : ''}`])
+          resolve()
+        })
+        const removeError = window.api.onEncodingError(({ jobId, error }) => {
+          if (jobId !== job.id) return
+          cleanup()
+          reject(new Error(error))
         })
 
-        if (!shouldSkipRef.current) {
-          setEncodingLogs((prev) => [...prev, `Completed: ${file.name}`])
+        let cleanup = (): void => {
+          removeComplete()
+          removeError()
         }
 
-        // Remove from queue and selection upon success OR SKIP
-        setVideoFiles((prev) => prev.filter((f) => f.path !== file.path))
-        setSelectedFiles((prev) => prev.filter((f) => f.path !== file.path))
-        setCompletedFilesCount((prev) => prev + 1)
-        setEncodingProgress(0)
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error)
-        setEncodingLogs((prev) => [...prev, `Error encoding ${file.name}: ${msg}`])
-        setEncodingError(msg)
-        // Stop queue on error so user can see it
-        isEncodingRef.current = false
-        break
+        if (shouldSkipRef.current) {
+          resolve()
+          return
+        }
+
+        window.api.startEncoding(options)
+      })
+    }
+
+    const runWithRetries = async (job: QueuedJob): Promise<void> => {
+      let attempt = job.attempts
+      while (attempt <= job.maxRetries && isEncodingRef.current) {
+        try {
+          await runJobOnce(job)
+          setQueuedJobs((prev) =>
+            prev.map((item) => (item.id === job.id ? { ...item, status: 'complete', progress: 100 } : item))
+          )
+          setCompletedFilesCount((prev) => prev + 1)
+          return
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          attempt += 1
+          const hasAttemptsLeft = attempt <= job.maxRetries
+          setQueuedJobs((prev) =>
+            prev.map((item) =>
+              item.id === job.id
+                ? {
+                    ...item,
+                    status: hasAttemptsLeft ? 'pending' : 'error',
+                    progress: 0,
+                    attempts: attempt,
+                    error: msg
+                  }
+                : item
+            )
+          )
+          setEncodingLogs((prev) => [...prev, `Error encoding ${job.file.name}: ${msg}${hasAttemptsLeft ? ' — retrying' : ''}`])
+          if (!hasAttemptsLeft) {
+            setEncodingError(msg)
+            throw error
+          }
+        }
       }
     }
 
-    setIsEncoding(false)
-    // Only clear isEncodingRef if we finished normally or cancelled,
-    // but we already set it to false in catch block if error.
-    // If we finished loop normally:
-    if (isEncodingRef.current) {
-      isEncodingRef.current = false
+    const workers: Array<Promise<void>> = []
+
+    const runNext = async (): Promise<void> => {
+      const next = queue.shift()
+      if (!next || !isEncodingRef.current) return
+      await runWithRetries(next)
+      if (queue.length > 0 && isEncodingRef.current) {
+        await runNext()
+      }
+    }
+
+    for (let i = 0; i < Math.min(maxConcurrency, queue.length); i++) {
+      workers.push(runNext())
+    }
+
+    try {
+      await Promise.all(workers)
       setEncodingLogs((prev) => [...prev, '\nAll tasks finished.'])
-    } else if (encodingError) {
+    } catch {
       setEncodingLogs((prev) => [...prev, '\nQueue stopped due to error.'])
-    } else {
-      setEncodingLogs((prev) => [...prev, '\nQueue stopped.'])
+      isEncodingRef.current = false
+    } finally {
+      setIsEncoding(false)
+      isEncodingRef.current = false
     }
   }
 
   const handleStartEncoding = (): void => {
-    if (selectedFiles.length === 0) return
+    if (selectedJobIds.length === 0) return
     void processQueue()
   }
 
   const handleCancelEncoding = async (): Promise<void> => {
     isEncodingRef.current = false
     setIsEncoding(false)
+    setQueuedJobs((prev) =>
+      prev.map((job) =>
+        job.status === 'encoding' ? { ...job, status: 'canceled', progress: 0 } : job
+      )
+    )
     await window.api.cancelEncoding()
     setEncodingLogs((prev) => [...prev, 'Encoding cancelled by user.'])
   }
 
   const handleSkipCurrent = (): void => {
     shouldSkipRef.current = true
+    void window.api.cancelEncoding()
     setEncodingLogs((prev) => [...prev, 'Skipping current file...'])
   }
 
-  const handleSaveQueue = async (filesToSave: VideoFile[]): Promise<void> => {
+  const handleSaveQueue = async (jobsToSave: QueuedJob[]): Promise<void> => {
     try {
-      const content = JSON.stringify(filesToSave, null, 2)
+      const content = JSON.stringify(jobsToSave, null, 2)
       await window.api.saveTextFile(content, 'queue.json')
     } catch (error) {
       console.error('Failed to save queue', error)
@@ -401,11 +491,10 @@ function App(): React.JSX.Element {
     try {
       const content = await window.api.readTextFile()
       if (content) {
-        const files = JSON.parse(content) as VideoFile[]
-        // Validate basic structure
-        if (Array.isArray(files) && files.every((f) => f.path && f.name)) {
-          setVideoFiles(files)
-          setSelectedFiles(files) // Auto select loaded
+        const loaded = JSON.parse(content) as QueuedJob[]
+        if (Array.isArray(loaded)) {
+          setQueuedJobs(loaded)
+          setSelectedJobIds(loaded.map((j) => j.id))
           setIsQueueOpen(true)
         }
       }
@@ -414,12 +503,34 @@ function App(): React.JSX.Element {
     }
   }
 
+  const handleUpdateJobOverrides = (
+    jobId: string,
+    overrides: Partial<EncodingOptions>,
+    perJobRetries?: number
+  ): void => {
+    setQueuedJobs((prev) =>
+      prev.map((job) =>
+        job.id === jobId
+          ? {
+              ...job,
+              overrides,
+              maxRetries: perJobRetries !== undefined ? perJobRetries : job.maxRetries
+            }
+          : job
+      )
+    )
+  }
+
   // Listen for progress and logs
   useEffect(() => {
-    const removeProgress = window.api.onEncodingProgress((p) => setEncodingProgress(p))
-    const removeLog = window.api.onEncodingLog((l) => {
+    const removeProgress = window.api.onEncodingProgress(({ jobId, progress }) => {
+      setQueuedJobs((prev) =>
+        prev.map((job) => (job.id === jobId ? { ...job, progress, status: 'encoding' } : job))
+      )
+    })
+    const removeLog = window.api.onEncodingLog(({ log }) => {
       setEncodingLogs((prev) => {
-        const newLogs = [...prev, l]
+        const newLogs = [...prev, log]
         if (newLogs.length > 1000) return newLogs.slice(-1000)
         return newLogs
       })
@@ -432,10 +543,26 @@ function App(): React.JSX.Element {
   }, [])
 
   // Calculate overall progress
-  const overallProgress =
-    totalQueueSize > 0
-      ? Math.min(100, ((completedFilesCount + encodingProgress / 100) / totalQueueSize) * 100)
-      : 0
+  const overallProgress = totalQueueSize > 0
+    ? Math.min(
+        100,
+        (queuedJobs.reduce((acc, job) => {
+          if (!selectedJobIds.includes(job.id)) return acc
+          if (job.status === 'complete') return acc + 1
+          if (job.status === 'encoding') return acc + job.progress / 100
+          return acc
+        }, 0) / totalQueueSize) * 100
+      )
+    : 0
+
+  // Keep encodingProgress state in sync with calculated overall progress for UI surfaces
+  useEffect(() => {
+    if (isEncoding) {
+      setEncodingProgress(Math.round(overallProgress))
+    } else if (overallProgress === 0 || totalQueueSize === 0) {
+      setEncodingProgress(0)
+    }
+  }, [overallProgress, isEncoding, totalQueueSize])
 
   // Calculate ETA
   useEffect(() => {
@@ -527,6 +654,10 @@ function App(): React.JSX.Element {
     return buildFilenameFromPattern(renamePattern, tokens)
   }
 
+  const selectedJobs = queuedJobs.filter((job) => selectedJobIds.includes(job.id))
+  const videoFiles = queuedJobs.map((job) => job.file)
+  const selectedFiles = selectedJobs.map((job) => job.file)
+
   return (
     <>
       <Layout
@@ -534,7 +665,7 @@ function App(): React.JSX.Element {
         active={active}
         onSelect={setActive}
         onOpenQueue={() => setIsQueueOpen(true)}
-        queueStats={{ total: videoFiles.length, selected: selectedFiles.length }}
+        queueStats={{ total: queuedJobs.length, selected: selectedJobs.length }}
       >
         {active === 'general' && (
           <GeneralPage
@@ -727,7 +858,7 @@ function App(): React.JSX.Element {
                     </div>
                     <Button
                       color="primary"
-                      isDisabled={!ffmpegChecked || selectedFiles.length === 0 || isEncoding}
+                      isDisabled={!ffmpegChecked || selectedJobs.length === 0 || isEncoding}
                       onPress={handleStartEncoding}
                     >
                       {isEncoding ? 'Encoding in Progress...' : 'Start Encoding'}
@@ -741,7 +872,7 @@ function App(): React.JSX.Element {
                       outputDirectory={outputDirectory}
                       regexPattern={renamePattern}
                       threads={threads}
-                      inputFiles={selectedFiles.map((f) => f.path)}
+                      inputFiles={selectedJobs.map((j) => j.file.path)}
                       videoCodec={videoCodec}
                       encodingError={encodingError}
                       onClearError={() => setEncodingError(null)}
@@ -780,11 +911,12 @@ function App(): React.JSX.Element {
       <QueueDrawer
         isOpen={isQueueOpen}
         onClose={() => setIsQueueOpen(false)}
-        videoFiles={videoFiles}
-        onSelectFile={handleFileSelect}
-        selectedFiles={selectedFiles}
+        jobs={queuedJobs}
+        onSelectJob={handleFileSelect}
+        selectedJobIds={selectedJobIds}
         onSelectAll={handleSelectAll}
         onClearSelection={handleClearSelection}
+        onRemoveJobs={handleRemoveJobs}
         onEncode={() => {
           setIsQueueOpen(false)
           handleStartEncoding()
@@ -795,6 +927,11 @@ function App(): React.JSX.Element {
         onLoadQueue={handleLoadQueue}
         overallProgress={overallProgress}
         eta={eta}
+        maxConcurrency={maxConcurrency}
+        setMaxConcurrency={setMaxConcurrency}
+        maxRetries={maxRetries}
+        setMaxRetries={setMaxRetries}
+        onUpdateJobOverrides={handleUpdateJobOverrides}
       />
 
       <FfmpegSetup

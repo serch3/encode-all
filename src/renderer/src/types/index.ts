@@ -100,3 +100,16 @@ export interface EncodingProfile {
   videoBitrate: number
   rateControlMode: 'crf' | 'bitrate'
 }
+
+export type JobStatus = 'pending' | 'encoding' | 'complete' | 'error' | 'canceled'
+
+export interface QueuedJob {
+  id: string
+  file: VideoFile
+  status: JobStatus
+  progress: number
+  attempts: number
+  maxRetries: number
+  error?: string
+  overrides?: Partial<EncodingOptions>
+}
