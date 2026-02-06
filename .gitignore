@@ -7,7 +7,5 @@ out
 requirements.txt
 plan.txt
 src/test/
-src/renderer/src/__tests__/
-test/
 README.md
 .vscode/

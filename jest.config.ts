@@ -18,7 +18,7 @@ const config: Config = {
   },
   modulePathIgnorePatterns: ['<rootDir>/src/test/__mocks__/herouiReactMock.tsx'],
   transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.web.json' }]
+    '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.jest.json' }]
   },
   testRegex: '(/__tests__/.*|(\\.|/)(test|spec))\\.(tsx?)$',
   collectCoverageFrom: [
