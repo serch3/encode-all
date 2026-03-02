@@ -17,9 +17,9 @@ import type {
   JobStatus
 } from './types'
 
+const FORCE_FFMPEG_MODAL = false
+
 function App(): React.JSX.Element {
-  // for debugging purposes
-  const FORCE_FFMPEG_MODAL = false
   const [showFfmpegPreview, setShowFfmpegPreview] = useState<boolean>(false)
 
   // Main navigation state
@@ -268,6 +268,7 @@ function App(): React.JSX.Element {
     if (jobsToRun.length === 0) return
 
     isEncodingRef.current = true
+    shouldSkipRef.current = false
     setIsEncoding(true)
     setQueueStartTime(Date.now())
     setCompletedFilesCount(0)
@@ -384,6 +385,7 @@ function App(): React.JSX.Element {
         }
 
         if (shouldSkipRef.current) {
+          shouldSkipRef.current = false
           resolve()
           return
         }
@@ -611,7 +613,6 @@ function App(): React.JSX.Element {
       const folderPath = await window.api.selectFolder()
       if (folderPath) {
         setLogDirectory(folderPath)
-        localStorage.setItem('logDirectory', folderPath)
       }
     } catch (error) {
       console.error('Failed to select log folder:', error)
@@ -655,8 +656,6 @@ function App(): React.JSX.Element {
   }
 
   const selectedJobs = queuedJobs.filter((job) => selectedJobIds.includes(job.id))
-  const videoFiles = queuedJobs.map((job) => job.file)
-  const selectedFiles = selectedJobs.map((job) => job.file)
 
   return (
     <>
@@ -914,6 +913,7 @@ function App(): React.JSX.Element {
         jobs={queuedJobs}
         onSelectJob={handleFileSelect}
         selectedJobIds={selectedJobIds}
+        hasNvidiaGpu={hasNvidiaGpu}
         onSelectAll={handleSelectAll}
         onClearSelection={handleClearSelection}
         onRemoveJobs={handleRemoveJobs}
