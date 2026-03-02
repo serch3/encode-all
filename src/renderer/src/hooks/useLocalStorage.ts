@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 /**
  * A hook that syncs state with localStorage.
@@ -45,11 +45,6 @@ export function useLocalStorage<T>(
       console.warn(`Error setting localStorage key "${key}":`, error)
     }
   }
-
-  useEffect(() => {
-    setStoredValue(readValue())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   return [storedValue, setValue]
 }
