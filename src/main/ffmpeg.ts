@@ -1,7 +1,7 @@
 import { spawn, ChildProcess } from 'child_process'
 import { BrowserWindow, powerSaveBlocker } from 'electron'
 import { createWriteStream, WriteStream, mkdirSync, existsSync } from 'fs'
-import { join, basename, dirname } from 'path'
+import { join, basename, dirname, extname } from 'path'
 import { EncodingOptions } from '../preload/api.types'
 
 type JobRecord = {
@@ -51,6 +51,25 @@ export function cancelEncoding(jobId?: string): void {
   for (const job of jobs.values()) {
     cancelJob(job)
   }
+}
+
+/**
+ * Returns a path that does not yet exist on disk.
+ * If `filePath` is free it is returned as-is; otherwise _1, _2, … suffixes
+ * are tried until a free slot is found.
+ */
+function resolveUniqueOutputPath(filePath: string): string {
+  if (!existsSync(filePath)) return filePath
+  const dir = dirname(filePath)
+  const ext = extname(filePath)
+  const base = basename(filePath, ext)
+  let counter = 1
+  let candidate: string
+  do {
+    candidate = join(dir, `${base}_${counter}${ext}`)
+    counter++
+  } while (existsSync(candidate))
+  return candidate
 }
 
 // Helper to run ffmpeg command as promise
@@ -135,6 +154,7 @@ export async function startEncoding(
   } = options
 
   const jobId = maybeJobId || pathHash(`${inputPath}-${outputPath}-${Date.now()}`)
+  const resolvedOutputPath = resolveUniqueOutputPath(outputPath)
 
   // Create job record
   const job: JobRecord = {
@@ -142,12 +162,19 @@ export async function startEncoding(
     process: null,
     logStream: null,
     duration: 0,
-    outputPath
+    outputPath: resolvedOutputPath
   }
   jobs.set(jobId, job)
 
-  // Base arguments
-  const baseArgs = ['-y', '-i', inputPath]
+  if (resolvedOutputPath !== outputPath) {
+    mainWindow.webContents.send('encoding-log', {
+      jobId,
+      log: `[warn] Output already exists — saving as "${basename(resolvedOutputPath)}" instead.\n`
+    })
+  }
+
+  // Base arguments — no -y: unique path is chosen above so we never overwrite
+  const baseArgs = ['-i', inputPath]
 
   // Preserve metadata by default
   baseArgs.push('-map_metadata', '0')
@@ -222,7 +249,7 @@ export async function startEncoding(
 
   // Logging setup
   let logPath: string
-  const filename = basename(outputPath)
+  const filename = basename(resolvedOutputPath)
 
   if (logDirectory) {
     logPath = join(logDirectory, `${filename}.log`)
@@ -283,7 +310,7 @@ export async function startEncoding(
         ...mapArgs,
         '-pass', '2',
         '-passlogfile', passLogPrefix,
-        outputPath
+        resolvedOutputPath
       ]
 
       await runFfmpegCommand(executable, pass2Args, mainWindow, job, (p) => {
@@ -302,7 +329,7 @@ export async function startEncoding(
         ...subtitleArgs,
         ...commonArgs,
         ...mapArgs,
-        outputPath
+        resolvedOutputPath
       ]
 
       await runFfmpegCommand(executable, args, mainWindow, job, (p) => {
@@ -317,7 +344,7 @@ export async function startEncoding(
     job.process = null
     releasePowerSaveBlocker()
     jobs.delete(jobId)
-    mainWindow.webContents.send('encoding-complete', { jobId, outputPath })
+    mainWindow.webContents.send('encoding-complete', { jobId, outputPath: resolvedOutputPath })
     mainWindow.setProgressBar(-1)
   } catch (error) {
     job.logStream?.end()
