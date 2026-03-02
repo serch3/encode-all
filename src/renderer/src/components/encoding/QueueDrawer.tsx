@@ -24,7 +24,17 @@ import {
   Checkbox
 } from '@heroui/react'
 import type { QueuedJob, EncodingOptions } from '../../types'
-import { Save, Upload, SkipForward, Edit, Trash2, CheckSquare, X, Search as SearchIcon, Layers } from 'lucide-react'
+import {
+  Save,
+  Upload,
+  SkipForward,
+  Edit,
+  Trash2,
+  CheckSquare,
+  X,
+  Search as SearchIcon,
+  Layers
+} from 'lucide-react'
 
 interface QueueDrawerProps {
   isOpen: boolean
@@ -51,6 +61,7 @@ interface QueueDrawerProps {
     overrides: Partial<EncodingOptions>,
     maxRetries?: number
   ) => void
+  hasNvidiaGpu?: boolean
 }
 
 export default function QueueDrawer({
@@ -73,7 +84,8 @@ export default function QueueDrawer({
   setMaxConcurrency,
   maxRetries,
   setMaxRetries,
-  onUpdateJobOverrides
+  onUpdateJobOverrides,
+  hasNvidiaGpu = false
 }: QueueDrawerProps): React.JSX.Element {
   const formatFileSize = (bytes: number): string => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
@@ -112,7 +124,10 @@ export default function QueueDrawer({
     setOverrideForm({})
   }
 
-  const handleOverrideChange = (field: keyof EncodingOptions, value: string | number | boolean): void => {
+  const handleOverrideChange = (
+    field: keyof EncodingOptions,
+    value: string | number | boolean
+  ): void => {
     setOverrideForm((prev) => ({ ...prev, [field]: value }))
   }
 
@@ -229,9 +244,7 @@ export default function QueueDrawer({
                         size="sm"
                         type="number"
                         value={(maxRetries ?? 0).toString()}
-                        onChange={(e) =>
-                          setMaxRetries(Math.max(0, parseInt(e.target.value) || 0))
-                        }
+                        onChange={(e) => setMaxRetries(Math.max(0, parseInt(e.target.value) || 0))}
                         className="w-20"
                         classNames={{ input: 'text-right' }}
                         isDisabled={isEncoding}
@@ -292,7 +305,9 @@ export default function QueueDrawer({
                               <span className="text-default-300">•</span>
                               <span className="font-mono uppercase">{job.status}</span>
                               {job.status === 'encoding' && (
-                                <span className="font-mono text-primary">{Math.round(job.progress)}%</span>
+                                <span className="font-mono text-primary">
+                                  {Math.round(job.progress)}%
+                                </span>
                               )}
                             </div>
                           </div>
@@ -303,10 +318,12 @@ export default function QueueDrawer({
                                 isIconOnly
                                 size="sm"
                                 variant="light"
-                                color={job.overrides && Object.keys(job.overrides).length > 0 ? 'danger' : 'default'}
-                                onPress={(e) => {
-                                  e?.preventDefault?.()
-                                  e?.stopPropagation?.()
+                                color={
+                                  job.overrides && Object.keys(job.overrides).length > 0
+                                    ? 'danger'
+                                    : 'default'
+                                }
+                                onPress={() => {
                                   openEdit(job)
                                 }}
                               >
@@ -319,9 +336,7 @@ export default function QueueDrawer({
                                 size="sm"
                                 variant="light"
                                 color="danger"
-                                onPress={(e) => {
-                                  e?.preventDefault?.()
-                                  e?.stopPropagation?.()
+                                onPress={() => {
                                   onRemoveJobs?.([job.id])
                                 }}
                                 isDisabled={isEncoding}
@@ -329,16 +344,16 @@ export default function QueueDrawer({
                                 <Trash2 size={16} />
                               </Button>
                             </Tooltip>
-                          {isSelected(job.id) && (
-                            <Chip
-                              size="sm"
-                              color="primary"
-                              variant="flat"
-                              className="text-[10px] px-2 py-0 h-5 flex-shrink-0"
-                            >
-                              Selected
-                            </Chip>
-                          )}
+                            {isSelected(job.id) && (
+                              <Chip
+                                size="sm"
+                                color="primary"
+                                variant="flat"
+                                className="text-[10px] px-2 py-0 h-5 flex-shrink-0"
+                              >
+                                Selected
+                              </Chip>
+                            )}
                           </div>
                         </div>
                         {job.status === 'encoding' && (
@@ -367,25 +382,49 @@ export default function QueueDrawer({
               <Select
                 label="Container"
                 selectedKeys={overrideForm.container ? [overrideForm.container] : []}
-                onSelectionChange={(keys) => handleOverrideChange('container', Array.from(keys)[0] as string)}
+                onSelectionChange={(keys) =>
+                  handleOverrideChange('container', Array.from(keys)[0] as string)
+                }
               >
                 <SelectItem key="mp4">MP4</SelectItem>
                 <SelectItem key="mkv">MKV</SelectItem>
                 <SelectItem key="webm">WebM</SelectItem>
                 <SelectItem key="mov">MOV</SelectItem>
               </Select>
-              <Input
-                label="Video codec"
-                value={overrideForm.videoCodec ?? ''}
-                onChange={(e) => handleOverrideChange('videoCodec', e.target.value)}
-                placeholder="e.g. libx265"
-              />
-              <Input
-                label="Audio codec"
-                value={overrideForm.audioCodec ?? ''}
-                onChange={(e) => handleOverrideChange('audioCodec', e.target.value)}
-                placeholder="e.g. aac"
-              />
+              <Select
+                label="Video Codec"
+                selectedKeys={overrideForm.videoCodec ? [overrideForm.videoCodec] : []}
+                onSelectionChange={(keys) =>
+                  handleOverrideChange('videoCodec', Array.from(keys)[0] as string)
+                }
+              >
+                {[
+                  { key: 'libx264', label: 'H.264 (libx264)' },
+                  { key: 'libx265', label: 'H.265 (libx265)' },
+                  { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
+                  { key: 'copy', label: 'Copy (no re-encode)' },
+                  ...(hasNvidiaGpu
+                    ? [
+                        { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
+                        { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
+                        { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
+                      ]
+                    : [])
+                ].map((codec) => (
+                  <SelectItem key={codec.key}>{codec.label}</SelectItem>
+                ))}
+              </Select>
+              <Select
+                label="Audio Codec"
+                selectedKeys={overrideForm.audioCodec ? [overrideForm.audioCodec] : []}
+                onSelectionChange={(keys) =>
+                  handleOverrideChange('audioCodec', Array.from(keys)[0] as string)
+                }
+              >
+                <SelectItem key="aac">AAC</SelectItem>
+                <SelectItem key="libopus">Opus</SelectItem>
+                <SelectItem key="copy">Copy (no re-encode)</SelectItem>
+              </Select>
               <Select
                 label="Rate control"
                 selectedKeys={overrideForm.rateControlMode ? [overrideForm.rateControlMode] : []}
@@ -401,7 +440,9 @@ export default function QueueDrawer({
                   label="Video bitrate (kbps)"
                   type="number"
                   value={overrideForm.videoBitrate?.toString() ?? ''}
-                  onChange={(e) => handleOverrideChange('videoBitrate', parseInt(e.target.value) || 0)}
+                  onChange={(e) =>
+                    handleOverrideChange('videoBitrate', parseInt(e.target.value) || 0)
+                  }
                 />
               ) : (
                 <Input
@@ -411,6 +452,33 @@ export default function QueueDrawer({
                   onChange={(e) => handleOverrideChange('crf', parseInt(e.target.value) || 0)}
                 />
               )}
+              <Select
+                label="Preset"
+                selectedKeys={overrideForm.preset ? [overrideForm.preset] : []}
+                onSelectionChange={(keys) =>
+                  handleOverrideChange('preset', Array.from(keys)[0] as string)
+                }
+              >
+                <SelectItem key="ultrafast">Ultrafast</SelectItem>
+                <SelectItem key="superfast">Superfast</SelectItem>
+                <SelectItem key="veryfast">Veryfast</SelectItem>
+                <SelectItem key="faster">Faster</SelectItem>
+                <SelectItem key="fast">Fast</SelectItem>
+                <SelectItem key="medium">Medium</SelectItem>
+                <SelectItem key="slow">Slow</SelectItem>
+                <SelectItem key="slower">Slower</SelectItem>
+                <SelectItem key="veryslow">Veryslow</SelectItem>
+              </Select>
+              <Select
+                label="Subtitle Mode"
+                selectedKeys={overrideForm.subtitleMode ? [overrideForm.subtitleMode] : []}
+                onSelectionChange={(keys) =>
+                  handleOverrideChange('subtitleMode', Array.from(keys)[0] as string)
+                }
+              >
+                <SelectItem key="none">None (Remove Subtitles)</SelectItem>
+                <SelectItem key="copy">Passthrough (Copy All)</SelectItem>
+              </Select>
               <Checkbox
                 isSelected={overrideForm.twoPass ?? false}
                 onValueChange={(val) => handleOverrideChange('twoPass', val)}
