@@ -36,11 +36,18 @@ const OutputPage = ({ logs, onCancel, isEncoding }: OutputPageProps): React.JSX.
             {logs.length === 0 ? (
               <div className="text-foreground/40 italic">Waiting for logs...</div>
             ) : (
-              logs.map((log, index) => (
-                <div key={index} className="whitespace-pre-wrap break-all">
-                  {log}
-                </div>
-              ))
+              <>
+                {logs.length > 200 && (
+                  <div className="text-foreground/40 italic mb-2">
+                    Showing last 200 of {logs.length} lines.
+                  </div>
+                )}
+                {logs.slice(-200).map((log, index) => (
+                  <div key={index} className="whitespace-pre-wrap break-all">
+                    {log}
+                  </div>
+                ))}
+              </>
             )}
           </ScrollShadow>
         </CardBody>
