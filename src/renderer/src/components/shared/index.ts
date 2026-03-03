@@ -6,3 +6,4 @@ import Versions from './Versions'
 
 export { Versions }
 export * from './icons'
+export { DropZone } from './DropZone'
