@@ -85,8 +85,12 @@ export default function Sidebar({
         </Button>
       </Tooltip>
 
-      <div className="mt-auto">
-        <ThemeToggle />
+      <div className="mt-auto flex justify-center">
+        <Tooltip content="Toggle theme" placement="right" delay={300}>
+          <div className="flex items-center">
+            <ThemeToggle />
+          </div>
+        </Tooltip>
       </div>
     </aside>
   )

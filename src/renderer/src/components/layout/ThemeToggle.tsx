@@ -127,8 +127,9 @@ export default function ThemeToggle(): React.JSX.Element {
       size="md"
       isSelected={isDark}
       onValueChange={handleToggle}
+      aria-label="Toggle dark mode"
       thumbIcon={({ isSelected, className }) =>
-        isSelected ? <SunIcon className={className} /> : <MoonIcon className={className} />
+        isSelected ? <MoonIcon className={className} /> : <SunIcon className={className} />
       }
     />
   )
