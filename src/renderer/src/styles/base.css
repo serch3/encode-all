@@ -100,6 +100,52 @@ code {
   font-size: 85%;
 }
 
+/* Drop zone animations */
+@keyframes dropzone-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes dropzone-icon-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-6px);
+  }
+  60% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes dropzone-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--dz-primary, #006fee) 30%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--dz-primary, #006fee) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--dz-primary, #006fee) 0%, transparent);
+  }
+}
+
+.dropzone-dragging .dz-icon {
+  animation: dropzone-icon-bounce 0.7s ease-in-out infinite;
+}
+
+.dropzone-dragging {
+  animation: dropzone-ring 1.2s ease-out infinite;
+}
+
 /* Utilities */
 .line-clamp-2 {
   display: -webkit-box;

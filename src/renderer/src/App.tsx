@@ -1,21 +1,14 @@
 import { Button, Card, CardBody, Input } from '@heroui/react'
 import { useState, useEffect, useRef } from 'react'
-import { ArrowUpToLine, FolderOpen, History } from 'lucide-react'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { editIcon as EditIcon, folderIcon as FolderIcon } from './components/shared/icons'
+import { DropZone } from './components/shared'
 import Layout from './components/layout'
 import { SettingsPage, GeneralPage, AboutPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
 import { QueueDrawer, ProfileManager, EncodingSettings } from './components/encoding'
 import { buildFilenameFromPattern } from './utils/pattern'
-import type {
-  VideoFile,
-  PatternTokens,
-  EncodingOptions,
-  EncodingProfile,
-  QueuedJob,
-  JobStatus
-} from './types'
+import type { VideoFile, PatternTokens, EncodingOptions, EncodingProfile, QueuedJob } from './types'
 
 const FORCE_FFMPEG_MODAL = false
 
@@ -41,7 +34,9 @@ function App(): React.JSX.Element {
   // On boot, reset any in-progress jobs to pending so they can resume
   useEffect(() => {
     setQueuedJobs((prev) =>
-      prev.map((job) => (job.status === 'encoding' ? { ...job, status: 'pending', progress: 0 } : job))
+      prev.map((job) =>
+        job.status === 'encoding' ? { ...job, status: 'pending', progress: 0 } : job
+      )
     )
     // we intentionally run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,7 +51,6 @@ function App(): React.JSX.Element {
 
   // ETA and Overall Progress calculation
   const [queueStartTime, setQueueStartTime] = useState<number | null>(null)
-  const [completedFilesCount, setCompletedFilesCount] = useState<number>(0)
   const [totalQueueSize, setTotalQueueSize] = useState<number>(0)
   const [eta, setEta] = useState<string>('--')
 
@@ -95,9 +89,6 @@ function App(): React.JSX.Element {
   const isNvenc = videoCodec.includes('nvenc')
   const isEncodingRef = useRef(false)
   const shouldSkipRef = useRef(false)
-
-  // Drag and drop state
-  const [isDragging, setIsDragging] = useState<boolean>(false)
 
   // Check FFmpeg installation on startup
   useEffect(() => {
@@ -154,73 +145,51 @@ function App(): React.JSX.Element {
     setFfmpegChecked(true)
   }
 
-  // Drag and drop handlers
-  const handleDragOver = (e: React.DragEvent): void => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!isEncoding) {
-      setIsDragging(true)
+  const probeNewJobs = async (newJobs: QueuedJob[]): Promise<void> => {
+    const PROBE_CONCURRENCY = 8
+    let index = 0
+    const runWorker = async (): Promise<void> => {
+      while (index < newJobs.length) {
+        const job = newJobs[index++]
+        try {
+          const info = await window.api.probeFile(job.file.path, ffmpegPath)
+          setQueuedJobs((prev) =>
+            prev.map((j) => (j.id === job.id ? { ...j, mediaInfo: info } : j))
+          )
+        } catch {
+          setQueuedJobs((prev) =>
+            prev.map((j) => (j.id === job.id ? { ...j, mediaInfoError: true } : j))
+          )
+        }
+      }
     }
-  }
-
-  const handleDragLeave = (e: React.DragEvent): void => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    // Only set dragging to false if we're actually leaving the drop zone
-    // and not just entering a child element
-    if (e.currentTarget.contains(e.relatedTarget as Node)) {
-      return
-    }
-
-    setIsDragging(false)
-  }
-
-  const handleDrop = (e: React.DragEvent): void => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(false)
-
-    if (isEncoding) return
-
-    const files = Array.from(e.dataTransfer.files)
-    const validExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v', '.ts']
-
-    const newVideoFiles: VideoFile[] = files
-      .filter((file) => {
-        const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
-        return validExtensions.includes(ext)
-      })
-      .map((file) => ({
-        name: file.name,
-        path: (file as any).path,
-        size: file.size,
-        modified: file.lastModified
-      }))
-
-    enqueueFiles(newVideoFiles)
+    await Promise.all(
+      Array.from({ length: Math.min(PROBE_CONCURRENCY, newJobs.length) }, runWorker)
+    )
   }
 
   const enqueueFiles = (files: VideoFile[]): void => {
     if (files.length === 0) return
-    setQueuedJobs((prev) => {
-      const existingPaths = new Set(prev.map((j) => j.file.path))
-      const newJobs: QueuedJob[] = files
-        .filter((f) => !existingPaths.has(f.path))
-        .map((file) => ({
-          id: crypto.randomUUID(),
-          file,
-          status: 'pending',
-          progress: 0,
-          attempts: 0,
-          maxRetries,
-          overrides: undefined
-        }))
-      if (newJobs.length === 0) return prev
-      setSelectedJobIds((ids) => [...ids, ...newJobs.map((j) => j.id)])
-      setIsQueueOpen(true)
-      return [...prev, ...newJobs]
-    })
+    // Compute new jobs against the current snapshot — safe because enqueueFiles
+    // is only called from user-triggered events (click / drop), never concurrently.
+    const existingPaths = new Set(queuedJobs.map((j) => j.file.path))
+    const newJobs: QueuedJob[] = files
+      .filter((f) => !existingPaths.has(f.path))
+      .map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        status: 'pending' as const,
+        progress: 0,
+        attempts: 0,
+        maxRetries,
+        overrides: undefined
+      }))
+    if (newJobs.length === 0) return
+    setQueuedJobs((prev) => [...prev, ...newJobs])
+    setSelectedJobIds((ids) => [...ids, ...newJobs.map((j) => j.id)])
+    setIsQueueOpen(true)
+    // Fire probes for all new jobs concurrently (capped at PROBE_CONCURRENCY)
+    void probeNewJobs(newJobs)
   }
 
   // Queue functions
@@ -262,8 +231,9 @@ function App(): React.JSX.Element {
   }
 
   const processQueue = async (): Promise<void> => {
-    const jobsToRun = queuedJobs.filter((job) =>
-      selectedJobIds.includes(job.id) && (job.status === 'pending' || job.status === 'error')
+    const jobsToRun = queuedJobs.filter(
+      (job) =>
+        selectedJobIds.includes(job.id) && (job.status === 'pending' || job.status === 'error')
     )
     if (jobsToRun.length === 0) return
 
@@ -271,7 +241,6 @@ function App(): React.JSX.Element {
     shouldSkipRef.current = false
     setIsEncoding(true)
     setQueueStartTime(Date.now())
-    setCompletedFilesCount(0)
     setEncodingError(null)
     setEncodingLogs(['Starting encoding process...'])
     setTotalQueueSize(jobsToRun.length)
@@ -331,7 +300,9 @@ function App(): React.JSX.Element {
         ext: effectiveContainer
       }
       const outputFilename = buildFilenameFromPattern(renamePattern, tokens)
-      const finalFilename = outputFilename.toLowerCase().endsWith(`.${effectiveContainer.toLowerCase()}`)
+      const finalFilename = outputFilename
+        .toLowerCase()
+        .endsWith(`.${effectiveContainer.toLowerCase()}`)
         ? outputFilename
         : `${outputFilename}.${effectiveContainer}`
 
@@ -370,7 +341,10 @@ function App(): React.JSX.Element {
         const removeComplete = window.api.onEncodingComplete(({ jobId, outputPath: completed }) => {
           if (jobId !== job.id) return
           cleanup()
-          setEncodingLogs((prev) => [...prev, `Completed: ${file.name}${completed ? ` -> ${completed}` : ''}`])
+          setEncodingLogs((prev) => [
+            ...prev,
+            `Completed: ${file.name}${completed ? ` -> ${completed}` : ''}`
+          ])
           resolve()
         })
         const removeError = window.api.onEncodingError(({ jobId, error }) => {
@@ -400,9 +374,10 @@ function App(): React.JSX.Element {
         try {
           await runJobOnce(job)
           setQueuedJobs((prev) =>
-            prev.map((item) => (item.id === job.id ? { ...item, status: 'complete', progress: 100 } : item))
+            prev.map((item) =>
+              item.id === job.id ? { ...item, status: 'complete', progress: 100 } : item
+            )
           )
-          setCompletedFilesCount((prev) => prev + 1)
           return
         } catch (error) {
           const msg = error instanceof Error ? error.message : String(error)
@@ -421,7 +396,10 @@ function App(): React.JSX.Element {
                 : item
             )
           )
-          setEncodingLogs((prev) => [...prev, `Error encoding ${job.file.name}: ${msg}${hasAttemptsLeft ? ' — retrying' : ''}`])
+          setEncodingLogs((prev) => [
+            ...prev,
+            `Error encoding ${job.file.name}: ${msg}${hasAttemptsLeft ? ' — retrying' : ''}`
+          ])
           if (!hasAttemptsLeft) {
             setEncodingError(msg)
             throw error
@@ -545,17 +523,20 @@ function App(): React.JSX.Element {
   }, [])
 
   // Calculate overall progress
-  const overallProgress = totalQueueSize > 0
-    ? Math.min(
-        100,
-        (queuedJobs.reduce((acc, job) => {
-          if (!selectedJobIds.includes(job.id)) return acc
-          if (job.status === 'complete') return acc + 1
-          if (job.status === 'encoding') return acc + job.progress / 100
-          return acc
-        }, 0) / totalQueueSize) * 100
-      )
-    : 0
+  const overallProgress =
+    totalQueueSize > 0
+      ? Math.min(
+          100,
+          (queuedJobs.reduce((acc, job) => {
+            if (!selectedJobIds.includes(job.id)) return acc
+            if (job.status === 'complete') return acc + 1
+            if (job.status === 'encoding') return acc + job.progress / 100
+            return acc
+          }, 0) /
+            totalQueueSize) *
+            100
+        )
+      : 0
 
   // Keep encodingProgress state in sync with calculated overall progress for UI surfaces
   useEffect(() => {
@@ -670,99 +651,13 @@ function App(): React.JSX.Element {
           <GeneralPage
             encoderContent={
               <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
-                <Card
-                  className={
-                    `lg:col-span-2 group border bg-content1/60 backdrop-blur-md transition-all duration-200 ease-out will-change-transform ` +
-                    (isDragging
-                      ? 'border-primary/30 shadow-md'
-                      : 'border-default-200/60 hover:border-primary/30 hover:shadow-lg hover:-translate-y-[1px]')
-                  }
-                >
-                  <CardBody
-                    className={
-                      `relative h-64 rounded-2xl overflow-hidden p-0 transition-colors duration-200 ` +
-                      (isEncoding ? 'cursor-not-allowed' : 'cursor-pointer') +
-                      ' focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30'
-                    }
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onClick={() => {
-                      if (!isEncoding) void handleSelectFolder()
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (isEncoding) return
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        void handleSelectFolder()
-                      }
-                    }}
-                  >
-                    <div
-                      className={
-                        `absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-black/10 ` +
-                        `group-hover:from-black/20 group-hover:to-primary/20 transition-opacity duration-200 ` +
-                        (isDragging ? 'opacity-100' : 'opacity-40 group-hover:opacity-85')
-                      }
-                    />
-                    <div
-                      className={
-                        `absolute inset-3 rounded-2xl border border-dashed transition-colors duration-200 ` +
-                        (isDragging
-                          ? 'border-primary/70'
-                          : 'border-default-300/60 group-hover:border-primary/40')
-                      }
-                    />
-
-                    <div className="relative h-full w-full flex flex-col items-center justify-center px-6 text-center">
-                      <div
-                        className={
-                          `mb-4 inline-flex items-center justify-center rounded-full p-3 border shadow-sm transition-colors duration-200 ` +
-                          (isDragging
-                            ? 'bg-primary/10 text-primary border-primary/30'
-                            : 'bg-content2/70 text-default-500 border-default-200/70 group-hover:bg-primary/10 group-hover:text-primary')
-                        }
-                      >
-                        <ArrowUpToLine size={26} />
-                      </div>
-
-                      <div className="space-y-1">
-                        <p className="text-xl font-semibold tracking-tight text-foreground">
-                          {isDragging ? 'Drop to add to queue' : 'Drop videos here'}
-                        </p>
-                        <p className="text-small text-default-500">
-                          or click to browse a folder • MP4, MKV, AVI, MOV, WebM
-                        </p>
-                      </div>
-
-                      <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-                        <Button
-                          color="primary"
-                          variant="shadow"
-                          onPress={handleSelectFolder}
-                          isDisabled={isEncoding}
-                          startContent={<FolderOpen size={18} />}
-                        >
-                          Browse Folder
-                        </Button>
-                        <Button
-                          variant="light"
-                          onPress={handleLoadQueue}
-                          isDisabled={isEncoding}
-                          startContent={<History size={18} />}
-                        >
-                          Load Session
-                        </Button>
-                      </div>
-
-                      <p className="mt-3 text-tiny text-default-400">
-                        Tip: Saved sessions can be reloaded anytime.
-                      </p>
-                    </div>
-                  </CardBody>
-                </Card>
+                <DropZone
+                  isEncoding={isEncoding}
+                  queueCount={queuedJobs.length}
+                  onFilesDropped={enqueueFiles}
+                  onBrowseFolder={handleSelectFolder}
+                  onLoadSession={handleLoadQueue}
+                />
                 <Card>
                   <CardBody className="flex flex-col gap-4">
                     <ProfileManager
