@@ -228,6 +228,16 @@ app.whenReady().then(() => {
     cancelEncoding(jobId)
   })
 
+  ipcMain.handle('probe-file', async (_, filePath: string, ffmpegPath?: string) => {
+    // Derive ffprobe path: replace the ffmpeg binary name with ffprobe
+    const probeBin = ffmpegPath
+      ? ffmpegPath.replace(/ffmpeg(\.exe)?$/i, (_, ext) => `ffprobe${ext ?? ''}`)
+      : 'ffprobe'
+    const quoted = `"${probeBin}" -v quiet -print_format json -show_streams -show_format "${filePath}"`
+    const { stdout } = await execAsync(quoted)
+    return JSON.parse(stdout)
+  })
+
   ipcMain.handle(
     'save-text-file',
     async (_, content: string, defaultName: string = 'queue-state.json') => {

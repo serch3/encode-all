@@ -5,7 +5,8 @@ import {
   EncodingProgressPayload,
   EncodingLogPayload,
   EncodingCompletePayload,
-  EncodingErrorPayload
+  EncodingErrorPayload,
+  MediaInfo
 } from './api.types'
 import { join } from 'path'
 
@@ -62,6 +63,9 @@ const api = {
   },
   readTextFile: async () => {
     return electronAPI.ipcRenderer.invoke('read-text-file')
+  },
+  probeFile: async (filePath: string, ffmpegPath?: string): Promise<MediaInfo> => {
+    return electronAPI.ipcRenderer.invoke('probe-file', filePath, ffmpegPath)
   }
 }
 

@@ -1,3 +1,29 @@
+export interface MediaStream {
+  index: number
+  codec_type: 'video' | 'audio' | 'subtitle' | 'data' | string
+  codec_name: string
+  profile?: string
+  width?: number
+  height?: number
+  r_frame_rate?: string
+  pix_fmt?: string
+  channels?: number
+  channel_layout?: string
+  sample_rate?: string
+  bit_rate?: string
+  tags?: Record<string, string>
+}
+
+export interface MediaInfo {
+  streams: MediaStream[]
+  format: {
+    duration?: string
+    bit_rate?: string
+    size?: string
+    format_name?: string
+  }
+}
+
 export interface CustomAPI {
   selectFolder: () => Promise<string | null>
   readVideoFiles: (folderPath: string) => Promise<
@@ -27,6 +53,7 @@ export interface CustomAPI {
   pathJoin: (...paths: string[]) => Promise<string>
   saveTextFile: (content: string, defaultName?: string) => Promise<boolean>
   readTextFile: () => Promise<string | null>
+  probeFile: (filePath: string, ffmpegPath?: string) => Promise<MediaInfo>
 }
 
 export interface EncodingOptions {
