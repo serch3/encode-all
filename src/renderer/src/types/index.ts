@@ -76,6 +76,9 @@ export interface EncodingOptions {
   subtitleMode: string
   videoBitrate: number
   rateControlMode: 'crf' | 'bitrate'
+  ffmpegPath?: string
+  logDirectory?: string
+  jobTimestamp?: string
 }
 
 /**
@@ -101,6 +104,41 @@ export interface EncodingProfile {
   rateControlMode: 'crf' | 'bitrate'
 }
 
+/**
+ * A single stream (video, audio, subtitle) from ffprobe
+ */
+export interface MediaStream {
+  index: number
+  codec_type: 'video' | 'audio' | 'subtitle' | 'data' | string
+  codec_name: string
+  profile?: string
+  // video
+  width?: number
+  height?: number
+  r_frame_rate?: string
+  pix_fmt?: string
+  // audio
+  channels?: number
+  channel_layout?: string
+  sample_rate?: string
+  // both
+  bit_rate?: string
+  tags?: Record<string, string>
+}
+
+/**
+ * Parsed output of ffprobe -show_streams -show_format
+ */
+export interface MediaInfo {
+  streams: MediaStream[]
+  format: {
+    duration?: string
+    bit_rate?: string
+    size?: string
+    format_name?: string
+  }
+}
+
 export type JobStatus = 'pending' | 'encoding' | 'complete' | 'error' | 'canceled'
 
 export interface QueuedJob {
@@ -112,4 +150,8 @@ export interface QueuedJob {
   maxRetries: number
   error?: string
   overrides?: Partial<EncodingOptions>
+  /** Populated asynchronously after enqueue via ffprobe */
+  mediaInfo?: MediaInfo
+  /** True if ffprobe failed for this file */
+  mediaInfoError?: boolean
 }
