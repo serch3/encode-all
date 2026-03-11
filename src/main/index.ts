@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { readdirSync, statSync, writeFileSync, readFileSync } from 'fs'
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import icon from '../../resources/icon.png?asset'
 import { startEncoding, cancelEncoding } from './ffmpeg'
@@ -214,13 +214,20 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('open-external', async (_, url: string) => {
-    shell.openExternal(url)
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        shell.openExternal(url)
+      }
+    } catch {
+      // invalid or disallowed URL - silently ignore
+    }
   })
 
   ipcMain.handle('start-encoding', async (event, options: EncodingOptions & { jobId?: string }) => {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (window) {
-      startEncoding(options, window)
+      await startEncoding(options, window)
     }
   })
 
@@ -233,9 +240,30 @@ app.whenReady().then(() => {
     const probeBin = ffmpegPath
       ? ffmpegPath.replace(/ffmpeg(\.exe)?$/i, (_, ext) => `ffprobe${ext ?? ''}`)
       : 'ffprobe'
-    const quoted = `"${probeBin}" -v quiet -print_format json -show_streams -show_format "${filePath}"`
-    const { stdout } = await execAsync(quoted)
-    return JSON.parse(stdout)
+    // Use spawn with an args array to prevent shell injection via filePath
+    return new Promise((resolve, reject) => {
+      const proc = spawn(probeBin, [
+        '-v', 'quiet',
+        '-print_format', 'json',
+        '-show_streams',
+        '-show_format',
+        filePath
+      ])
+      let stdout = ''
+      let stderr = ''
+      proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
+      proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+      proc.on('close', (code) => {
+        if (code === 0) {
+          try { resolve(JSON.parse(stdout)) } catch (e) {
+            reject(new Error(`Failed to parse ffprobe output: ${e}`))
+          }
+        } else {
+          reject(new Error(`ffprobe exited with code ${code}: ${stderr}`))
+        }
+      })
+      proc.on('error', reject)
+    })
   })
 
   ipcMain.handle(
