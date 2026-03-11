@@ -21,9 +21,11 @@ import {
   ModalHeader,
   Select,
   SelectItem,
-  Checkbox
+  Checkbox,
+  Divider,
+  Spinner
 } from '@heroui/react'
-import type { QueuedJob, EncodingOptions } from '../../types'
+import type { QueuedJob, EncodingOptions, MediaInfo } from '../../types'
 import {
   Save,
   Upload,
@@ -96,6 +98,117 @@ export default function QueueDrawer({
 
   const formatDate = (timestamp: number): string => {
     return new Date(timestamp).toLocaleDateString()
+  }
+
+  /** Returns a compact one-line summary for use in the job card */
+  const getMediaSummary = (job: QueuedJob): string | null => {
+    const info = job.mediaInfo
+    if (!info) return null
+    const video = info.streams.find((s) => s.codec_type === 'video')
+    const audios = info.streams.filter((s) => s.codec_type === 'audio')
+    const parts: string[] = []
+    if (video) {
+      if (video.width && video.height) parts.push(`${video.width}×${video.height}`)
+      parts.push(video.codec_name.toUpperCase())
+      if (video.r_frame_rate) {
+        const [n, d] = video.r_frame_rate.split('/').map(Number)
+        if (d) parts.push(`${Math.round(n / d)}fps`)
+      }
+    }
+    if (audios.length > 0) {
+      const a = audios[0]
+      const chLabel = a.channels ? ` ${a.channels}ch` : ''
+      parts.push(`${a.codec_name.toUpperCase()}${chLabel}`)
+      if (audios.length > 1) parts.push(`+${audios.length - 1} audio`)
+    }
+    if (info.format.duration) {
+      const secs = parseFloat(info.format.duration)
+      const h = Math.floor(secs / 3600)
+      const m = Math.floor((secs % 3600) / 60)
+      const s = Math.floor(secs % 60)
+      parts.push(h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`)
+    }
+    return parts.join(' · ')
+  }
+
+  /** Renders a detailed stream list for the override modal */
+  const renderModalMediaInfo = (info: MediaInfo): React.JSX.Element => {
+    const videoStreams = info.streams.filter((s) => s.codec_type === 'video')
+    const audioStreams = info.streams.filter((s) => s.codec_type === 'audio')
+    const subStreams = info.streams.filter((s) => s.codec_type === 'subtitle')
+    const fmtBitrate = (bps?: string): string => {
+      if (!bps) return ''
+      const n = parseInt(bps)
+      return n > 1_000_000
+        ? ` · ${(n / 1_000_000).toFixed(1)} Mb/s`
+        : ` · ${Math.round(n / 1000)} kb/s`
+    }
+    const fmtDuration = (dur?: string): string => {
+      if (!dur) return ''
+      const secs = parseFloat(dur)
+      const h = Math.floor(secs / 3600)
+      const m = Math.floor((secs % 3600) / 60)
+      const s = Math.floor(secs % 60)
+      return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`
+    }
+    return (
+      <div className="rounded-lg bg-default-100 p-3 text-xs space-y-2 font-mono">
+        {videoStreams.map((v, i) => (
+          <div key={i} className="flex flex-wrap gap-x-2 gap-y-0.5 text-default-600">
+            <span className="text-primary font-semibold">VIDEO</span>
+            <span>
+              {v.codec_name.toUpperCase()}
+              {v.profile ? ` (${v.profile})` : ''}
+            </span>
+            {v.width && v.height && (
+              <span>
+                {v.width}×{v.height}
+              </span>
+            )}
+            {v.r_frame_rate &&
+              (() => {
+                const [n, d] = v.r_frame_rate.split('/').map(Number)
+                return d ? <span>{Math.round(n / d)} fps</span> : null
+              })()}
+            {v.pix_fmt && <span>{v.pix_fmt}</span>}
+            {v.bit_rate && <span>{fmtBitrate(v.bit_rate).trim()}</span>}
+          </div>
+        ))}
+        {audioStreams.map((a, i) => {
+          const lang = a.tags?.language
+          return (
+            <div key={i} className="flex flex-wrap gap-x-2 gap-y-0.5 text-default-600">
+              <span className="text-secondary font-semibold">AUDIO</span>
+              <span>{a.codec_name.toUpperCase()}</span>
+              {a.channels && (
+                <span>
+                  {a.channels}ch{a.channel_layout ? ` (${a.channel_layout})` : ''}
+                </span>
+              )}
+              {a.sample_rate && <span>{parseInt(a.sample_rate) / 1000} kHz</span>}
+              {a.bit_rate && <span>{fmtBitrate(a.bit_rate).trim()}</span>}
+              {lang && lang !== 'und' && <span className="uppercase text-default-400">{lang}</span>}
+            </div>
+          )
+        })}
+        {subStreams.map((s, i) => {
+          const lang = s.tags?.language
+          return (
+            <div key={i} className="flex flex-wrap gap-x-2 gap-y-0.5 text-default-500">
+              <span className="font-semibold">SUB</span>
+              <span>{s.codec_name.toUpperCase()}</span>
+              {lang && lang !== 'und' && <span className="uppercase">{lang}</span>}
+            </div>
+          )
+        })}
+        {(info.format.duration || info.format.bit_rate) && (
+          <div className="flex gap-x-2 text-default-400 pt-0.5 border-t border-default-200">
+            {info.format.duration && <span>{fmtDuration(info.format.duration)}</span>}
+            {info.format.bit_rate && <span>{fmtBitrate(info.format.bit_rate).trim()} total</span>}
+          </div>
+        )}
+      </div>
+    )
   }
 
   const isSelected = (jobId: string): boolean => {
@@ -310,6 +423,25 @@ export default function QueueDrawer({
                                 </span>
                               )}
                             </div>
+                            {/* Media info row */}
+                            {!job.mediaInfo && !job.mediaInfoError && (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <Spinner size="sm" className="scale-75" />
+                                <span className="text-[10px] text-default-400">Probing…</span>
+                              </div>
+                            )}
+                            {job.mediaInfo &&
+                              (() => {
+                                const summary = getMediaSummary(job)
+                                return summary ? (
+                                  <div
+                                    className="mt-0.5 text-[11px] text-default-400 font-mono truncate"
+                                    title={summary}
+                                  >
+                                    {summary}
+                                  </div>
+                                ) : null
+                              })()}
                           </div>
 
                           <div className="flex items-center gap-2">
@@ -377,8 +509,24 @@ export default function QueueDrawer({
 
         <Modal isOpen={!!editingJob} onClose={closeEdit} backdrop="blur">
           <ModalContent>
-            <ModalHeader>Edit overrides</ModalHeader>
+            <ModalHeader className="flex flex-col gap-1">
+              <span>Edit overrides</span>
+              {editingJob && (
+                <span
+                  className="text-xs font-normal text-default-500 truncate max-w-xs"
+                  title={editingJob.file.name}
+                >
+                  {editingJob.file.name}
+                </span>
+              )}
+            </ModalHeader>
             <ModalBody className="gap-3">
+              {editingJob?.mediaInfo && (
+                <>
+                  {renderModalMediaInfo(editingJob.mediaInfo)}
+                  <Divider />
+                </>
+              )}
               <Select
                 label="Container"
                 selectedKeys={overrideForm.container ? [overrideForm.container] : []}
