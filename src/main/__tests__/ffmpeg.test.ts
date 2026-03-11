@@ -108,7 +108,6 @@ describe('startEncoding', () => {
     expect(executable).toBe('ffmpeg')
 
     expect(args).toEqual([
-      '-y',
       '-i',
       options.inputPath,
       '-map_metadata',
