@@ -31,16 +31,17 @@ export function useLocalStorage<T>(
   // ... persists the new value to localStorage.
   const setValue: React.Dispatch<React.SetStateAction<T>> = (value) => {
     try {
-      // Allow value to be a function so we have same API as useState
-      const valueToStore = value instanceof Function ? value(storedValue) : value
+      setStoredValue((prev) => {
+        // Allow value to be a function so we have same API as useState
+        const valueToStore = value instanceof Function ? value(prev) : value
 
-      // Save state
-      setStoredValue(valueToStore)
+        // Save to local storage
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(key, JSON.stringify(valueToStore))
+        }
 
-      // Save to local storage
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(key, JSON.stringify(valueToStore))
-      }
+        return valueToStore
+      })
     } catch (error) {
       console.warn(`Error setting localStorage key "${key}":`, error)
     }
