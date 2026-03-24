@@ -8,7 +8,7 @@ import { DropZone } from './components/shared'
 import Layout from './components/layout'
 import { SettingsPage, GeneralPage, AboutPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
-import { QueueDrawer, ProfileManager, EncodingSettings } from './components/encoding'
+import { QueueDrawer, ProfileManager, EncodingSettings, FloatingProgress } from './components/encoding'
 import { buildFilenameFromPattern } from './utils/pattern'
 import type { PatternTokens, EncodingProfile } from './types'
 
@@ -22,6 +22,7 @@ function App(): React.JSX.Element {
   const [ffmpegChecked, setFfmpegChecked] = useState<boolean>(false)
   const [hasNvidiaGpu, setHasNvidiaGpu] = useState<boolean>(false)
   const [ffmpegPath, setFfmpegPath] = useState<string | undefined>(undefined)
+  const [showProgressPage, setShowProgressPage] = useState<boolean>(false)
 
   const config = useEncodingConfig()
   const queue = useQueueManager(ffmpegPath)
@@ -29,6 +30,7 @@ function App(): React.JSX.Element {
     queuedJobs: queue.queuedJobs,
     setQueuedJobs: queue.setQueuedJobs,
     selectedJobIds: queue.selectedJobIds,
+    setSelectedJobIds: queue.setSelectedJobIds,
     maxConcurrency: queue.maxConcurrency,
     ffmpegPath,
     config
@@ -58,7 +60,11 @@ function App(): React.JSX.Element {
         }
 
         if (!status?.isInstalled) {
-          if (!hasBeenChecked) setShowFfmpegSetup(true)
+          if (!hasBeenChecked) {
+            setShowFfmpegSetup(true)
+          } else {
+            setFfmpegChecked(true)
+          }
         } else {
           setFfmpegChecked(true)
           if (!hasBeenChecked) localStorage.setItem('ffmpeg-checked', 'true')
@@ -164,7 +170,23 @@ function App(): React.JSX.Element {
         onSelect={setActive}
         onOpenQueue={() => queue.setIsQueueOpen(true)}
         queueStats={{ total: queue.queuedJobs.length, selected: selectedJobs.length }}
+        isEncoding={session.isEncoding}
+        overallProgress={session.overallProgress}
       >
+        <FloatingProgress
+          isVisible={!showProgressPage || active !== 'general'}
+          isEncoding={session.isEncoding}
+          encodingError={session.encodingError}
+          currentEncodingFile={session.currentEncodingFile}
+          overallProgress={session.overallProgress}
+          eta={session.eta}
+          onPress={() => {
+            setActive('general')
+            setShowProgressPage(true)
+          }}
+          onClearError={() => session.setEncodingError(null)}
+        />
+
         {active === 'general' && (
           <GeneralPage
             encoderContent={
@@ -176,105 +198,113 @@ function App(): React.JSX.Element {
                   onBrowseFolder={handleSelectFolder}
                   onLoadSession={queue.handleLoadQueue}
                 />
-                <Card>
-                  <CardBody className="flex flex-col gap-4">
-                    <ProfileManager
-                      currentSettings={{
-                        container: config.container,
-                        videoCodec: config.videoCodec,
-                        audioCodec: config.audioCodec,
-                        audioChannels: config.audioChannels,
-                        audioBitrate: config.audioBitrate,
-                        volumeDb: config.volumeDb,
-                        threads: config.threads,
-                        trackSelection: config.trackSelection,
-                        crf: config.crf,
-                        preset: config.preset,
-                        renamePattern: config.renamePattern,
-                        videoBitrate: config.videoBitrate,
-                        rateControlMode: config.rateControlMode,
-                        twoPass: config.twoPass,
-                        subtitleMode: config.subtitleMode
-                      }}
-                      profiles={config.savedProfiles}
-                      onLoadProfile={handleLoadProfile}
-                      onSaveProfile={handleSaveProfile}
-                      onDeleteProfile={handleDeleteProfile}
-                    />
-                    <EncodingSettings
-                      container={config.container}
-                      setContainer={config.setContainer}
-                      videoCodec={config.videoCodec}
-                      setVideoCodec={config.setVideoCodec}
-                      audioCodec={config.audioCodec}
-                      setAudioCodec={config.setAudioCodec}
-                      audioChannels={config.audioChannels}
-                      setAudioChannels={config.setAudioChannels}
-                      audioBitrate={config.audioBitrate}
-                      setAudioBitrate={config.setAudioBitrate}
-                      volumeDb={config.volumeDb}
-                      setVolumeDb={config.setVolumeDb}
-                      crf={config.crf}
-                      setCrf={config.setCrf}
-                      preset={config.preset}
-                      setPreset={config.setPreset}
-                      threads={config.threads}
-                      setThreads={config.setThreads}
-                      trackSelection={config.trackSelection}
-                      setTrackSelection={config.setTrackSelection}
-                      videoBitrate={config.videoBitrate}
-                      setVideoBitrate={config.setVideoBitrate}
-                      rateControlMode={config.rateControlMode}
-                      setRateControlMode={config.setRateControlMode}
-                      twoPass={config.twoPass}
-                      setTwoPass={config.setTwoPass}
-                      subtitleMode={config.subtitleMode}
-                      setSubtitleMode={config.setSubtitleMode}
-                      isEncoding={session.isEncoding}
-                      hasNvidiaGpu={hasNvidiaGpu}
-                      isNvenc={isNvenc}
-                    />
+                <Card className="lg:col-span-2 overflow-visible">
+                  <CardBody className="flex flex-col gap-4 p-0">
+                    <div className="p-4 flex flex-col gap-4">
+                      <ProfileManager
+                        currentSettings={{
+                          container: config.container,
+                          videoCodec: config.videoCodec,
+                          audioCodec: config.audioCodec,
+                          audioChannels: config.audioChannels,
+                          audioBitrate: config.audioBitrate,
+                          volumeDb: config.volumeDb,
+                          threads: config.threads,
+                          trackSelection: config.trackSelection,
+                          crf: config.crf,
+                          preset: config.preset,
+                          renamePattern: config.renamePattern,
+                          videoBitrate: config.videoBitrate,
+                          rateControlMode: config.rateControlMode,
+                          twoPass: config.twoPass,
+                          subtitleMode: config.subtitleMode
+                        }}
+                        profiles={config.savedProfiles}
+                        onLoadProfile={handleLoadProfile}
+                        onSaveProfile={handleSaveProfile}
+                        onDeleteProfile={handleDeleteProfile}
+                      />
+                      <EncodingSettings
+                        container={config.container}
+                        setContainer={config.setContainer}
+                        videoCodec={config.videoCodec}
+                        setVideoCodec={config.setVideoCodec}
+                        audioCodec={config.audioCodec}
+                        setAudioCodec={config.setAudioCodec}
+                        audioChannels={config.audioChannels}
+                        setAudioChannels={config.setAudioChannels}
+                        audioBitrate={config.audioBitrate}
+                        setAudioBitrate={config.setAudioBitrate}
+                        volumeDb={config.volumeDb}
+                        setVolumeDb={config.setVolumeDb}
+                        crf={config.crf}
+                        setCrf={config.setCrf}
+                        preset={config.preset}
+                        setPreset={config.setPreset}
+                        threads={config.threads}
+                        setThreads={config.setThreads}
+                        trackSelection={config.trackSelection}
+                        setTrackSelection={config.setTrackSelection}
+                        videoBitrate={config.videoBitrate}
+                        setVideoBitrate={config.setVideoBitrate}
+                        rateControlMode={config.rateControlMode}
+                        setRateControlMode={config.setRateControlMode}
+                        twoPass={config.twoPass}
+                        setTwoPass={config.setTwoPass}
+                        subtitleMode={config.subtitleMode}
+                        setSubtitleMode={config.setSubtitleMode}
+                        isEncoding={session.isEncoding}
+                        hasNvidiaGpu={hasNvidiaGpu}
+                        isNvenc={isNvenc}
+                      />
+                    </div>
 
-                    <div className="flex flex-col gap-2">
-                      <div className="flex gap-2 items-end">
+                    <div className="sticky bottom-0 z-20 bg-content1 border-t border-divider p-4 pt-4 shadow-[0_-8px_20px_-12px_rgba(0,0,0,0.3)] rounded-b-large flex flex-col gap-4">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex gap-2 items-end">
+                          <Input
+                            label="Output directory"
+                            startContent={<FolderIcon className="w-5 h-5 text-default-400" />}
+                            placeholder="Same as input (default)"
+                            readOnly
+                            value={config.outputDirectory}
+                            className="flex-1"
+                            isDisabled={session.isEncoding}
+                          />
+                          <Button
+                            variant="flat"
+                            onPress={handleSelectOutputDirectory}
+                            className="h-14"
+                            isDisabled={session.isEncoding}
+                          >
+                            Browse
+                          </Button>
+                        </div>
                         <Input
-                          label="Output directory"
-                          startContent={<FolderIcon className="w-5 h-5 text-default-400" />}
-                          placeholder="Same as input (default)"
-                          readOnly
-                          value={config.outputDirectory}
-                          className="flex-1"
+                          label="Rename pattern"
+                          startContent={<EditIcon className="w-5 h-5 text-default-400" />}
+                          placeholder="e.g. {name}_{codec}"
+                          value={config.renamePattern}
+                          onChange={(e) => config.setRenamePattern(e.target.value)}
+                          description="Tokens: {name} {codec} {ext}"
                           isDisabled={session.isEncoding}
                         />
-                        <Button
-                          variant="flat"
-                          onPress={handleSelectOutputDirectory}
-                          className="h-14"
-                          isDisabled={session.isEncoding}
-                        >
-                          Browse
-                        </Button>
+                        <div className="text-xs text-foreground/60">
+                          Preview: {getPreviewFilename()}
+                        </div>
                       </div>
-                      <Input
-                        label="Rename pattern"
-                        startContent={<EditIcon className="w-5 h-5 text-default-400" />}
-                        placeholder="e.g. {name}_{codec}"
-                        value={config.renamePattern}
-                        onChange={(e) => config.setRenamePattern(e.target.value)}
-                        description="Tokens: {name} {codec} {ext}"
-                        isDisabled={session.isEncoding}
-                      />
-                      <div className="text-xs text-foreground/60">
-                        Preview: {getPreviewFilename()}
-                      </div>
+                      <Button
+                        color="primary"
+                        className="w-full h-12 text-base font-semibold"
+                        isDisabled={!ffmpegChecked || selectedJobs.length === 0 || session.isEncoding}
+                        onPress={() => {
+                          setShowProgressPage(true)
+                          session.handleStartEncoding()
+                        }}
+                      >
+                        {session.isEncoding ? 'Encoding in Progress...' : 'Start Encoding'}
+                      </Button>
                     </div>
-                    <Button
-                      color="primary"
-                      isDisabled={!ffmpegChecked || selectedJobs.length === 0 || session.isEncoding}
-                      onPress={session.handleStartEncoding}
-                    >
-                      {session.isEncoding ? 'Encoding in Progress...' : 'Start Encoding'}
-                    </Button>
                   </CardBody>
                 </Card>
                 {showFfmpegPreview && (
@@ -306,6 +336,13 @@ function App(): React.JSX.Element {
             isEncoding={session.isEncoding}
             encodingProgress={session.encodingProgress}
             currentEncodingFile={session.currentEncodingFile}
+            encodingError={session.encodingError}
+            onClearError={() => session.setEncodingError(null)}
+            eta={session.eta}
+            overallProgress={session.overallProgress}
+            activeJobs={selectedJobs}
+            showProgressPage={showProgressPage}
+            onDismissProgress={() => setShowProgressPage(false)}
           />
         )}
         {active === 'settings' && (

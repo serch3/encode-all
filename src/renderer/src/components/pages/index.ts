@@ -5,6 +5,5 @@
 import SettingsPage from './SettingsPage'
 import AboutPage from './AboutPage'
 import GeneralPage from './GeneralPage'
-import OutputPage from './OutputPage'
 
-export { SettingsPage, AboutPage, GeneralPage, OutputPage }
+export { SettingsPage, AboutPage, GeneralPage }
