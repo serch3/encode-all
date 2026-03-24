@@ -7,6 +7,7 @@ interface SessionDeps {
   queuedJobs: QueuedJob[]
   setQueuedJobs: Dispatch<SetStateAction<QueuedJob[]>>
   selectedJobIds: string[]
+  setSelectedJobIds: Dispatch<SetStateAction<string[]>>
   maxConcurrency: number
   ffmpegPath: string | undefined
   config: EncodingConfig
@@ -21,6 +22,7 @@ export function useEncodingSession({
   queuedJobs,
   setQueuedJobs,
   selectedJobIds,
+  setSelectedJobIds,
   maxConcurrency,
   ffmpegPath,
   config
@@ -155,11 +157,13 @@ export function useEncodingSession({
     setEncodingLogs(['Starting encoding process...'])
     setTotalQueueSize(jobsToRun.length)
 
-    // Reset any jobs that got stuck in 'encoding' state
+    // Normalize selected jobs before a new run so previously failed/canceled
+    // items can be retried immediately.
     setQueuedJobs((prev) =>
       prev.map((job) =>
-        selectedJobIds.includes(job.id) && job.status === 'encoding'
-          ? { ...job, status: 'pending', progress: 0 }
+        selectedJobIds.includes(job.id) &&
+        (job.status === 'encoding' || job.status === 'error' || job.status === 'canceled')
+          ? { ...job, status: 'pending', progress: 0, error: undefined }
           : job
       )
     )
@@ -167,6 +171,7 @@ export function useEncodingSession({
     const jobTimestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
 
     const queue = [...jobsToRun]
+    const completedJobIds = new Set<string>()
 
     const runJobOnce = async (job: QueuedJob): Promise<void> => {
       setQueuedJobs((prev) =>
@@ -278,10 +283,13 @@ export function useEncodingSession({
     }
 
     const runWithRetries = async (job: QueuedJob): Promise<void> => {
-      let attempt = job.attempts
+      // Retry budget is per queue run. Historical attempts should not block
+      // manually re-running a previously failed item.
+      let attempt = 0
       while (attempt <= job.maxRetries && isEncodingRef.current) {
         try {
           await runJobOnce(job)
+          completedJobIds.add(job.id)
           setQueuedJobs((prev) =>
             prev.map((item) =>
               item.id === job.id ? { ...item, status: 'complete', progress: 100 } : item
@@ -333,6 +341,10 @@ export function useEncodingSession({
 
     try {
       await Promise.all(workers)
+      if (isEncodingRef.current && completedJobIds.size === jobsToRun.length) {
+        setQueuedJobs((prev) => prev.filter((job) => !completedJobIds.has(job.id)))
+        setSelectedJobIds((prev) => prev.filter((id) => !completedJobIds.has(id)))
+      }
       setEncodingLogs((prev) => [...prev, '\nAll tasks finished.'])
     } catch {
       setEncodingLogs((prev) => [...prev, '\nQueue stopped due to error.'])

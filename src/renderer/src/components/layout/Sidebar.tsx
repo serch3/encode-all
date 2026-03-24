@@ -8,13 +8,15 @@ type SidebarProps = {
   onSelect: (key: SidebarProps['active']) => void
   onOpenQueue?: () => void
   queueStats?: { total: number; selected: number }
+  isEncoding?: boolean
 }
 
 export default function Sidebar({
   active,
   onSelect,
   onOpenQueue,
-  queueStats
+  queueStats,
+  isEncoding
 }: SidebarProps): React.JSX.Element {
   return (
     <aside className="h-full w-16 border-r border-foreground/10 p-2 flex flex-col gap-2">
@@ -23,9 +25,14 @@ export default function Sidebar({
           variant={active === 'general' ? 'flat' : 'light'}
           onPress={() => onSelect('general')}
           isIconOnly
-          className="w-12 h-12"
+          className="w-12 h-12 relative"
         >
           <Home className="w-5 h-5" />
+          {isEncoding && active !== 'general' && (
+            <span className="absolute top-2 right-2">
+              <span className="block w-2.5 h-2.5 rounded-full bg-primary animate-pulse" />
+            </span>
+          )}
         </Button>
       </Tooltip>
 
@@ -77,7 +84,12 @@ export default function Sidebar({
           className="w-12 h-12 relative"
         >
           <List className="w-5 h-5" />
-          {queueStats && queueStats.total > 0 && (
+          {isEncoding && (
+            <span className="absolute top-1 right-1">
+              <span className="block w-2.5 h-2.5 rounded-full bg-success animate-pulse" />
+            </span>
+          )}
+          {!isEncoding && queueStats && queueStats.total > 0 && (
             <span className="absolute top-1 right-1 bg-primary text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
               {queueStats.selected}
             </span>
