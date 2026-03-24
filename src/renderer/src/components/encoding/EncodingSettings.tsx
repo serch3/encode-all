@@ -10,6 +10,7 @@ import {
   RadioGroup,
   Radio
 } from '@heroui/react'
+import { useEffect } from 'react'
 import {
   boxIcon as BoxIcon,
   videoIcon as VideoIcon,
@@ -93,6 +94,66 @@ export default function EncodingSettings({
   hasNvidiaGpu,
   isNvenc
 }: EncodingSettingsProps): React.JSX.Element {
+
+  // Enforce container codec compatibility
+  useEffect(() => {
+    if (container === 'webm') {
+      if (!['libvpx-vp9', 'av1_nvenc', 'copy'].includes(videoCodec)) {
+        setVideoCodec('libvpx-vp9')
+      }
+      if (!['libopus', 'copy'].includes(audioCodec)) {
+        setAudioCodec('libopus')
+      }
+    } else if (container === 'mp4') {
+      if (!['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(videoCodec)) {
+        setVideoCodec('libx264')
+      }
+      if (!['aac', 'libopus', 'copy'].includes(audioCodec)) {
+        setAudioCodec('aac')
+      }
+    } else if (container === 'mov') {
+      if (!['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'copy'].includes(videoCodec)) {
+        setVideoCodec('libx264')
+      }
+      if (!['aac', 'copy'].includes(audioCodec)) {
+        setAudioCodec('aac')
+      }
+    }
+  }, [container])
+
+  const ALL_VIDEO_CODECS = [
+    { key: 'libx264', label: 'H.264 (libx264)' },
+    { key: 'libx265', label: 'H.265 (libx265)' },
+    { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
+    ...(hasNvidiaGpu
+      ? [
+          { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
+          { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
+          { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
+        ]
+      : []),
+    { key: 'copy', label: 'Copy' }
+  ]
+
+  const ALL_AUDIO_CODECS = [
+    { key: 'aac', label: 'AAC' },
+    { key: 'libopus', label: 'Opus' },
+    { key: 'copy', label: 'Copy' }
+  ]
+
+  const availableVideoCodecs = ALL_VIDEO_CODECS.filter((codec) => {
+    if (container === 'webm') return ['libvpx-vp9', 'av1_nvenc', 'copy'].includes(codec.key)
+    if (container === 'mp4') return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(codec.key)
+    if (container === 'mov') return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'copy'].includes(codec.key)
+    return true // mkv supports all
+  })
+
+  const availableAudioCodecs = ALL_AUDIO_CODECS.filter((codec) => {
+    if (container === 'webm') return ['libopus', 'copy'].includes(codec.key)
+    if (container === 'mov') return ['aac', 'copy'].includes(codec.key)
+    return true // mkv, mp4 support all listed
+  })
+
   return (
     <Card>
       <CardBody className="p-0">
@@ -137,18 +198,7 @@ export default function EncodingSettings({
                 onSelectionChange={(keys) => setVideoCodec(Array.from(keys)[0] as string)}
                 isDisabled={isEncoding}
               >
-                {[
-                  { key: 'libx264', label: 'H.264 (libx264)' },
-                  { key: 'libx265', label: 'H.265 (libx265)' },
-                  { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
-                  ...(hasNvidiaGpu
-                    ? [
-                        { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
-                        { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
-                        { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
-                      ]
-                    : [])
-                ].map((codec) => (
+                {availableVideoCodecs.map((codec) => (
                   <SelectItem key={codec.key}>{codec.label}</SelectItem>
                 ))}
               </Select>
@@ -241,9 +291,9 @@ export default function EncodingSettings({
                 onSelectionChange={(keys) => setAudioCodec(Array.from(keys)[0] as string)}
                 isDisabled={isEncoding}
               >
-                <SelectItem key="aac">AAC</SelectItem>
-                <SelectItem key="copy">Copy</SelectItem>
-                <SelectItem key="libopus">Opus</SelectItem>
+                {availableAudioCodecs.map((codec) => (
+                  <SelectItem key={codec.key}>{codec.label}</SelectItem>
+                ))}
               </Select>
 
               <Select
