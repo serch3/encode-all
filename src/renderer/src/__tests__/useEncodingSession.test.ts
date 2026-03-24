@@ -82,10 +82,12 @@ describe('useEncodingSession', () => {
 
     const { result } = renderHook(() => {
       const [jobs, setJobs] = useState<QueuedJob[]>([makeJob('job-1')])
+      const [selectedJobIds, setSelectedJobIds] = useState<string[]>(['job-1'])
       const session = useEncodingSession({
         queuedJobs: jobs,
         setQueuedJobs: setJobs,
-        selectedJobIds: ['job-1'],
+        selectedJobIds,
+        setSelectedJobIds,
         maxConcurrency: 1,
         ffmpegPath: '/ffmpeg',
         config: baseConfig
@@ -98,8 +100,7 @@ describe('useEncodingSession', () => {
     })
 
     await waitFor(() => {
-      expect(result.current.jobs[0].status).toBe('complete')
-      expect(result.current.jobs[0].progress).toBe(100)
+      expect(result.current.jobs).toHaveLength(0)
     })
 
     expect(window.api.startEncoding).toHaveBeenCalledTimes(1)
@@ -142,10 +143,12 @@ describe('useEncodingSession', () => {
 
     const { result } = renderHook(() => {
       const [jobs, setJobs] = useState<QueuedJob[]>([makeJob('job-2', 2)])
+      const [selectedJobIds, setSelectedJobIds] = useState<string[]>(['job-2'])
       const session = useEncodingSession({
         queuedJobs: jobs,
         setQueuedJobs: setJobs,
-        selectedJobIds: ['job-2'],
+        selectedJobIds,
+        setSelectedJobIds,
         maxConcurrency: 1,
         ffmpegPath: '/ffmpeg',
         config: baseConfig
@@ -158,12 +161,60 @@ describe('useEncodingSession', () => {
     })
 
     await waitFor(() => {
-      expect(result.current.jobs[0].status).toBe('complete')
-      expect(result.current.jobs[0].attempts).toBe(2)
+      expect(result.current.jobs).toHaveLength(0)
     })
 
     expect(window.api.startEncoding).toHaveBeenCalledTimes(2)
     expect(result.current.session.encodingLogs.join('\n')).toContain('retrying')
+  })
+
+  test('selected error jobs can be started again even with exhausted previous attempts', async () => {
+    let completeListener:
+      | ((payload: { jobId: string; outputPath?: string }) => void)
+      | undefined
+
+    mockWindowApi((api) => {
+      api.onEncodingComplete.mockImplementation((cb) => {
+        completeListener = cb
+        return () => {}
+      })
+      api.startEncoding.mockImplementation(async (options) => {
+        completeListener?.({ jobId: options.jobId as string, outputPath: '/out/restarted.mkv' })
+      })
+    })
+
+    const { result } = renderHook(() => {
+      const [jobs, setJobs] = useState<QueuedJob[]>([
+        {
+          ...makeJob('job-err', 2),
+          status: 'error',
+          attempts: 3,
+          error: 'previous failure'
+        }
+      ])
+      const [selectedJobIds, setSelectedJobIds] = useState<string[]>(['job-err'])
+      const session = useEncodingSession({
+        queuedJobs: jobs,
+        setQueuedJobs: setJobs,
+        selectedJobIds,
+        setSelectedJobIds,
+        maxConcurrency: 1,
+        ffmpegPath: '/ffmpeg',
+        config: baseConfig
+      })
+      return { jobs, session }
+    })
+
+    act(() => {
+      result.current.session.handleStartEncoding()
+    })
+
+    await waitFor(() => {
+      expect(result.current.jobs).toHaveLength(0)
+    })
+
+    expect(window.api.startEncoding).toHaveBeenCalledTimes(1)
+    expect(result.current.session.encodingLogs.join('\n')).toContain('Completed: job-err.mp4')
   })
 
   test('cancel and skip controls call cancel api and update session logs', async () => {
@@ -173,10 +224,12 @@ describe('useEncodingSession', () => {
       const [jobs, setJobs] = useState<QueuedJob[]>([
         { ...makeJob('job-3'), status: 'encoding', progress: 40 }
       ])
+      const [selectedJobIds, setSelectedJobIds] = useState<string[]>(['job-3'])
       const session = useEncodingSession({
         queuedJobs: jobs,
         setQueuedJobs: setJobs,
-        selectedJobIds: ['job-3'],
+        selectedJobIds,
+        setSelectedJobIds,
         maxConcurrency: 1,
         ffmpegPath: '/ffmpeg',
         config: baseConfig
