@@ -140,6 +140,7 @@ export function useEncodingSession({
       rateControlMode,
       renamePattern,
       outputDirectory,
+      enableLogging,
       logDirectory
     } = config
 
@@ -242,6 +243,7 @@ export function useEncodingSession({
         threads: effectiveThreads,
         trackSelection: effectiveTrackSelection,
         ffmpegPath,
+        enableLogging,
         logDirectory,
         jobTimestamp,
         twoPass: effectiveTwoPass,

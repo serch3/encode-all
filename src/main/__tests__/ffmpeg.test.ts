@@ -57,6 +57,7 @@ const createMainWindowMock = () => ({
 const createBaseOptions = (): EncodingOptions => ({
   inputPath: 'C:/videos/input.mp4',
   outputPath: 'C:/videos/output.mkv',
+  container: 'mkv',
   videoCodec: 'libx265',
   audioCodec: 'aac',
   audioChannels: 'stereo',
@@ -67,6 +68,7 @@ const createBaseOptions = (): EncodingOptions => ({
   threads: 2,
   trackSelection: 'all_audio',
   ffmpegPath: 'ffmpeg',
+  enableLogging: true,
   logDirectory: 'C:/logs',
   jobTimestamp: undefined,
   twoPass: false,

@@ -21,6 +21,7 @@ const baseConfig = {
   subtitleMode: 'none',
   videoBitrate: 2500,
   rateControlMode: 'crf' as const,
+  enableLogging: true,
   logDirectory: '/logs',
   savedProfiles: [],
   setContainer: jest.fn(),
@@ -39,6 +40,7 @@ const baseConfig = {
   setSubtitleMode: jest.fn(),
   setVideoBitrate: jest.fn(),
   setRateControlMode: jest.fn(),
+  setEnableLogging: jest.fn(),
   setLogDirectory: jest.fn(),
   setSavedProfiles: jest.fn()
 }

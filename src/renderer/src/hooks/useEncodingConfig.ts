@@ -35,7 +35,8 @@ export function useEncodingConfig() {
     'config-rateControlMode',
     'crf'
   )
-  const [logDirectory, setLogDirectory] = useLocalStorage<string>('logDirectory', '')
+  const [enableLogging, setEnableLogging] = useLocalStorage<boolean>('config-enableLogging', true)
+  const [logDirectory, setLogDirectory] = useLocalStorage<string>('config-logDirectory', '')
   const [savedProfiles, setSavedProfiles] = useLocalStorage<EncodingProfile[]>('saved-profiles', [])
 
   return {
@@ -71,6 +72,8 @@ export function useEncodingConfig() {
     setVideoBitrate,
     rateControlMode,
     setRateControlMode,
+    enableLogging,
+    setEnableLogging,
     logDirectory,
     setLogDirectory,
     savedProfiles,

@@ -350,6 +350,8 @@ function App(): React.JSX.Element {
             showFfmpegPreview={showFfmpegPreview}
             onShowFfmpegPreviewChange={setShowFfmpegPreview}
             hasNvidiaGpu={hasNvidiaGpu}
+            enableLogging={config.enableLogging}
+            onEnableLoggingChange={config.setEnableLogging}
             logDirectory={config.logDirectory}
             onSelectLogDirectory={handleSelectLogFolder}
           />

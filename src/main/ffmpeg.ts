@@ -144,6 +144,7 @@ export async function startEncoding(
     threads,
     trackSelection,
     ffmpegPath,
+    enableLogging,
     logDirectory,
     jobTimestamp,
     twoPass,
@@ -248,23 +249,25 @@ export async function startEncoding(
   }
 
   // Logging setup
-  let logPath: string
+  let logPath: string | null = null
   const filename = basename(resolvedOutputPath)
 
-  if (logDirectory) {
-    logPath = join(logDirectory, `${filename}.log`)
-  } else if (jobTimestamp) {
-    const outputDir = dirname(outputPath)
-    const logsFolder = join(outputDir, `logs_${jobTimestamp}`)
+  if (enableLogging) {
+    if (logDirectory) {
+      logPath = join(logDirectory, `${filename}.log`)
+    } else if (jobTimestamp) {
+      const outputDir = dirname(outputPath)
+      const logsFolder = join(outputDir, `logs_${jobTimestamp}`)
 
-    if (!existsSync(logsFolder)) {
-      mkdirSync(logsFolder, { recursive: true })
+      if (!existsSync(logsFolder)) {
+        mkdirSync(logsFolder, { recursive: true })
+      }
+      logPath = join(logsFolder, `${filename}.log`)
+    } else {
+      logPath = `${outputPath}.log`
     }
-    logPath = join(logsFolder, `${filename}.log`)
-  } else {
-    logPath = `${outputPath}.log`
+    job.logStream = createWriteStream(logPath)
   }
-  job.logStream = createWriteStream(logPath)
 
   // Prevent system sleep during encoding
   retainPowerSaveBlocker()
@@ -275,7 +278,23 @@ export async function startEncoding(
     if (twoPass && videoCodec !== 'copy') {
       // Pass 1
       mainWindow.webContents.send('encoding-log', 'Starting Pass 1/2...\n')
-      const passLogPrefix = join(dirname(logPath), `ffmpeg2pass-${pathHash(filename)}`)
+      
+      // For 2-pass encoding, we need a temp directory for pass stats
+      // Use the same strategy as logging, but always create it for 2-pass
+      let pass1StatsDir: string
+      if (logPath) {
+        pass1StatsDir = dirname(logPath)
+      } else if (jobTimestamp) {
+        const outputDir = dirname(outputPath)
+        pass1StatsDir = join(outputDir, `logs_${jobTimestamp}`)
+        if (!existsSync(pass1StatsDir)) {
+          mkdirSync(pass1StatsDir, { recursive: true })
+        }
+      } else {
+        pass1StatsDir = dirname(outputPath)
+      }
+      
+      const passLogPrefix = join(pass1StatsDir, `ffmpeg2pass-${pathHash(filename)}`)
 
       // For Pass 1:
       // - Include video settings (codec, bitrate/crf, preset)

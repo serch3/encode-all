@@ -70,6 +70,7 @@ export interface EncodingOptions {
   threads: number
   trackSelection: string
   ffmpegPath?: string
+  enableLogging: boolean
   logDirectory?: string
   jobTimestamp?: string
   twoPass: boolean
