@@ -38,6 +38,7 @@ export function useEncodingSession({
 
   const isEncodingRef = useRef(false)
   const shouldSkipRef = useRef(false)
+  const activeJobIdsRef = useRef<Set<string>>(new Set())
 
   // Reset any jobs that were mid-encoding when the app last closed
   useEffect(() => {
@@ -175,6 +176,8 @@ export function useEncodingSession({
     const completedJobIds = new Set<string>()
 
     const runJobOnce = async (job: QueuedJob): Promise<void> => {
+      activeJobIdsRef.current.add(job.id)
+      try {
       setQueuedJobs((prev) =>
         prev.map((item) =>
           item.id === job.id
@@ -282,6 +285,9 @@ export function useEncodingSession({
 
         window.api.startEncoding(options)
       })
+      } finally {
+        activeJobIdsRef.current.delete(job.id)
+      }
     }
 
     const runWithRetries = async (job: QueuedJob): Promise<void> => {
@@ -299,6 +305,15 @@ export function useEncodingSession({
           )
           return
         } catch (error) {
+          if (shouldSkipRef.current) {
+            shouldSkipRef.current = false
+            setQueuedJobs((prev) =>
+              prev.map((item) =>
+                item.id === job.id ? { ...item, status: 'canceled', progress: 0, error: undefined } : item
+              )
+            )
+            return
+          }
           const msg = error instanceof Error ? error.message : String(error)
           attempt += 1
           const hasAttemptsLeft = attempt <= job.maxRetries
@@ -376,7 +391,9 @@ export function useEncodingSession({
 
   const handleSkipCurrent = (): void => {
     shouldSkipRef.current = true
-    void window.api.cancelEncoding()
+    for (const jobId of activeJobIdsRef.current) {
+      void window.api.cancelEncoding(jobId)
+    }
     setEncodingLogs((prev) => [...prev, 'Skipping current file...'])
   }
 
