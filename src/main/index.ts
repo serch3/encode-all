@@ -92,12 +92,17 @@ async function selectFfmpegExecutable(): Promise<string | null> {
 
   // Verify it's actually FFmpeg
   try {
-    const { stdout } = await execAsync(`"${selectedPath}" -version`)
-    if (stdout.includes('ffmpeg version')) {
-      return selectedPath
-    } else {
-      throw new Error('Selected file is not a valid FFmpeg executable')
-    }
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(selectedPath, ['-version'])
+      let stdout = ''
+      proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
+      proc.on('close', (code) => {
+        if (code === 0 && stdout.includes('ffmpeg version')) resolve()
+        else reject(new Error('Selected file is not a valid FFmpeg executable'))
+      })
+      proc.on('error', reject)
+    })
+    return selectedPath
   } catch {
     throw new Error('Selected file is not a valid FFmpeg executable')
   }
