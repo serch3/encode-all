@@ -277,7 +277,7 @@ export async function startEncoding(
   try {
     if (twoPass && videoCodec !== 'copy') {
       // Pass 1
-      mainWindow.webContents.send('encoding-log', 'Starting Pass 1/2...\n')
+      mainWindow.webContents.send('encoding-log', { jobId, log: 'Starting Pass 1/2...\n' })
       
       // For 2-pass encoding, we need a temp directory for pass stats
       // Use the same strategy as logging, but always create it for 2-pass
@@ -319,7 +319,7 @@ export async function startEncoding(
       })
 
       // Pass 2
-      mainWindow.webContents.send('encoding-log', 'Starting Pass 2/2...\n')
+      mainWindow.webContents.send('encoding-log', { jobId, log: 'Starting Pass 2/2...\n' })
       const pass2Args = [
         ...baseArgs,
         ...videoArgs,
