@@ -26,6 +26,7 @@ import {
   Spinner
 } from '@heroui/react'
 import type { QueuedJob, EncodingOptions, MediaInfo } from '../../types'
+import { MAX_QUEUE_CONCURRENCY, MAX_QUEUE_RETRIES } from '../../constants/queue'
 import {
   Save,
   Upload,
@@ -341,12 +342,18 @@ export default function QueueDrawer({
                         type="number"
                         value={(maxConcurrency ?? 1).toString()}
                         onChange={(e) =>
-                          setMaxConcurrency(Math.max(1, parseInt(e.target.value) || 1))
+                          setMaxConcurrency(
+                            Math.min(
+                              MAX_QUEUE_CONCURRENCY,
+                              Math.max(1, parseInt(e.target.value) || 1)
+                            )
+                          )
                         }
                         className="w-20"
                         classNames={{ input: 'text-right' }}
                         isDisabled={isEncoding}
                         min={1}
+                        max={MAX_QUEUE_CONCURRENCY}
                       />
                     </div>
                   )}
@@ -357,11 +364,16 @@ export default function QueueDrawer({
                         size="sm"
                         type="number"
                         value={(maxRetries ?? 0).toString()}
-                        onChange={(e) => setMaxRetries(Math.max(0, parseInt(e.target.value) || 0))}
+                        onChange={(e) =>
+                          setMaxRetries(
+                            Math.min(MAX_QUEUE_RETRIES, Math.max(0, parseInt(e.target.value) || 0))
+                          )
+                        }
                         className="w-20"
                         classNames={{ input: 'text-right' }}
                         isDisabled={isEncoding}
                         min={0}
+                        max={MAX_QUEUE_RETRIES}
                       />
                     </div>
                   )}
@@ -637,7 +649,13 @@ export default function QueueDrawer({
                 label="Per-file max retries"
                 type="number"
                 value={(overrideRetries ?? 0).toString()}
-                onChange={(e) => setOverrideRetries(Math.max(0, parseInt(e.target.value) || 0))}
+                onChange={(e) =>
+                  setOverrideRetries(
+                    Math.min(MAX_QUEUE_RETRIES, Math.max(0, parseInt(e.target.value) || 0))
+                  )
+                }
+                min={0}
+                max={MAX_QUEUE_RETRIES}
               />
             </ModalBody>
             <ModalFooter>

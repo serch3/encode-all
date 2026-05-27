@@ -77,10 +77,23 @@ describe('useQueueManager', () => {
           {
             id: 'loaded-1',
             file: fileA,
+            status: 'encoding',
+            progress: 88,
+            attempts: 7,
+            maxRetries: 20,
+            mediaInfo: { stale: true }
+          },
+          {
+            id: 'duplicate-path',
+            file: fileA,
             status: 'pending',
             progress: 0,
             attempts: 0,
             maxRetries: 2
+          },
+          {
+            id: 'invalid-file',
+            file: { name: '', path: '' }
           }
         ])
       )
@@ -114,6 +127,12 @@ describe('useQueueManager', () => {
 
     expect(result.current.queuedJobs).toHaveLength(1)
     expect(result.current.queuedJobs[0].id).toBe('loaded-1')
+    expect(result.current.queuedJobs[0]).toMatchObject({
+      status: 'pending',
+      progress: 0,
+      attempts: 0,
+      maxRetries: 10
+    })
     expect(result.current.selectedJobIds).toEqual(['loaded-1'])
     expect(result.current.isQueueOpen).toBe(true)
   })

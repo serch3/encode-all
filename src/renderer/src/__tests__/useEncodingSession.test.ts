@@ -62,9 +62,7 @@ const makeJob = (id: string, maxRetries = 1): QueuedJob => ({
 describe('useEncodingSession', () => {
   test('starts encoding and marks job complete after progress and completion events', async () => {
     let progressListener: ((payload: { jobId: string; progress: number }) => void) | undefined
-    let completeListener:
-      | ((payload: { jobId: string; outputPath?: string }) => void)
-      | undefined
+    let completeListener: ((payload: { jobId: string; outputPath?: string }) => void) | undefined
 
     mockWindowApi((api) => {
       api.onEncodingProgress.mockImplementation((cb) => {
@@ -118,9 +116,7 @@ describe('useEncodingSession', () => {
   })
 
   test('retries a failed job and succeeds on second attempt', async () => {
-    let completeListener:
-      | ((payload: { jobId: string; outputPath?: string }) => void)
-      | undefined
+    let completeListener: ((payload: { jobId: string; outputPath?: string }) => void) | undefined
     let errorListener: ((payload: { jobId: string; error: string }) => void) | undefined
     let attemptCount = 0
 
@@ -171,9 +167,7 @@ describe('useEncodingSession', () => {
   })
 
   test('selected error jobs can be started again even with exhausted previous attempts', async () => {
-    let completeListener:
-      | ((payload: { jobId: string; outputPath?: string }) => void)
-      | undefined
+    let completeListener: ((payload: { jobId: string; outputPath?: string }) => void) | undefined
 
     mockWindowApi((api) => {
       api.onEncodingComplete.mockImplementation((cb) => {
@@ -219,6 +213,39 @@ describe('useEncodingSession', () => {
     expect(result.current.session.encodingLogs.join('\n')).toContain('Completed: job-err.mp4')
   })
 
+  test('marks a job failed when the start-encoding invoke rejects', async () => {
+    mockWindowApi((api) => {
+      api.startEncoding.mockRejectedValue(new Error('invoke failed'))
+    })
+
+    const { result } = renderHook(() => {
+      const [jobs, setJobs] = useState<QueuedJob[]>([makeJob('job-reject', 0)])
+      const [selectedJobIds, setSelectedJobIds] = useState<string[]>(['job-reject'])
+      const session = useEncodingSession({
+        queuedJobs: jobs,
+        setQueuedJobs: setJobs,
+        selectedJobIds,
+        setSelectedJobIds,
+        maxConcurrency: 1,
+        ffmpegPath: '/ffmpeg',
+        config: baseConfig
+      })
+      return { jobs, session }
+    })
+
+    act(() => {
+      result.current.session.handleStartEncoding()
+    })
+
+    await waitFor(() => {
+      expect(result.current.jobs[0].status).toBe('error')
+    })
+
+    expect(window.api.startEncoding).toHaveBeenCalledTimes(1)
+    expect(result.current.jobs[0].error).toBe('invoke failed')
+    expect(result.current.session.encodingLogs.join('\n')).toContain('Queue stopped due to error.')
+  })
+
   test('cancel and skip controls call cancel api and update session logs', async () => {
     mockWindowApi()
 
@@ -240,23 +267,25 @@ describe('useEncodingSession', () => {
     })
 
     act(() => {
-      result.current.setJobs((prev) => prev.map((job) => ({ ...job, status: 'encoding', progress: 40 })))
+      result.current.setJobs((prev) =>
+        prev.map((job) => ({ ...job, status: 'encoding', progress: 40 }))
+      )
     })
-
-    await act(async () => {
-      await result.current.session.handleCancelEncoding()
-    })
-
-    expect(window.api.cancelEncoding).toHaveBeenCalledTimes(1)
-    expect(result.current.jobs[0].status).toBe('canceled')
-    expect(result.current.jobs[0].progress).toBe(0)
-    expect(result.current.session.encodingLogs.join('\n')).toContain('Encoding cancelled by user.')
 
     act(() => {
       result.current.session.handleSkipCurrent()
     })
 
-    expect(window.api.cancelEncoding).toHaveBeenCalledTimes(2)
+    expect(window.api.cancelEncoding).toHaveBeenCalledWith('job-3')
     expect(result.current.session.encodingLogs.join('\n')).toContain('Skipping current file...')
+
+    await act(async () => {
+      await result.current.session.handleCancelEncoding()
+    })
+
+    expect(window.api.cancelEncoding).toHaveBeenCalledTimes(2)
+    expect(result.current.jobs[0].status).toBe('canceled')
+    expect(result.current.jobs[0].progress).toBe(0)
+    expect(result.current.session.encodingLogs.join('\n')).toContain('Encoding cancelled by user.')
   })
 })

@@ -77,17 +77,17 @@ export default function FloatingProgress({
                   </Button>
                 )}
               </div>
-              <div 
+              <div
                 className={`flex items-center justify-between gap-2 mt-1 ${encodingError ? 'cursor-pointer' : ''}`}
                 onClick={encodingError ? onPress : undefined}
               >
                 <span className="text-sm truncate flex-1 font-medium hover:underline flex items-center">
-                  {encodingError
-                    ? 'Click to view logs'
-                    : currentEncodingFile || 'Initializing...'}
+                  {encodingError ? 'Click to view logs' : currentEncodingFile || 'Initializing...'}
                 </span>
                 {!encodingError && etaLabel && (
-                  <span className="text-xs text-foreground/50 shrink-0 tabular-nums">{etaLabel}</span>
+                  <span className="text-xs text-foreground/50 shrink-0 tabular-nums">
+                    {etaLabel}
+                  </span>
                 )}
               </div>
             </CardBody>

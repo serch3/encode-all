@@ -178,113 +178,126 @@ export function useEncodingSession({
     const runJobOnce = async (job: QueuedJob): Promise<void> => {
       activeJobIdsRef.current.add(job.id)
       try {
-      setQueuedJobs((prev) =>
-        prev.map((item) =>
-          item.id === job.id
-            ? {
-                ...item,
-                status: 'encoding',
-                progress: 0,
-                attempts: item.attempts + 1,
-                error: undefined
-              }
-            : item
+        setQueuedJobs((prev) =>
+          prev.map((item) =>
+            item.id === job.id
+              ? {
+                  ...item,
+                  status: 'encoding',
+                  progress: 0,
+                  attempts: item.attempts + 1,
+                  error: undefined
+                }
+              : item
+          )
         )
-      )
 
-      const file = job.file
-      setCurrentEncodingFile(file.name)
-      setEncodingProgress(0)
-      setEncodingLogs((prev) => [...prev, `\nProcessing: ${file.name}`])
+        const file = job.file
+        setCurrentEncodingFile(file.name)
+        setEncodingProgress(0)
+        setEncodingLogs((prev) => [...prev, `\nProcessing: ${file.name}`])
 
-      const effectiveContainer = job.overrides?.container ?? container
-      const effectiveVideoCodec = job.overrides?.videoCodec ?? videoCodec
-      const effectiveAudioCodec = job.overrides?.audioCodec ?? audioCodec
-      const effectiveAudioChannels = job.overrides?.audioChannels ?? audioChannels
-      const effectiveAudioBitrate = job.overrides?.audioBitrate ?? audioBitrate
-      const effectiveVolumeDb = job.overrides?.volumeDb ?? volumeDb
-      const effectiveCrf = job.overrides?.crf ?? crf
-      const effectivePreset = job.overrides?.preset ?? preset
-      const effectiveThreads = job.overrides?.threads ?? threads
-      const effectiveTrackSelection = job.overrides?.trackSelection ?? trackSelection
-      const effectiveTwoPass = job.overrides?.twoPass ?? twoPass
-      const effectiveSubtitleMode = job.overrides?.subtitleMode ?? subtitleMode
-      const effectiveVideoBitrate = job.overrides?.videoBitrate ?? videoBitrate
-      const effectiveRateControlMode = job.overrides?.rateControlMode ?? rateControlMode
+        const effectiveContainer = job.overrides?.container ?? container
+        const effectiveVideoCodec = job.overrides?.videoCodec ?? videoCodec
+        const effectiveAudioCodec = job.overrides?.audioCodec ?? audioCodec
+        const effectiveAudioChannels = job.overrides?.audioChannels ?? audioChannels
+        const effectiveAudioBitrate = job.overrides?.audioBitrate ?? audioBitrate
+        const effectiveVolumeDb = job.overrides?.volumeDb ?? volumeDb
+        const effectiveCrf = job.overrides?.crf ?? crf
+        const effectivePreset = job.overrides?.preset ?? preset
+        const effectiveThreads = job.overrides?.threads ?? threads
+        const effectiveTrackSelection = job.overrides?.trackSelection ?? trackSelection
+        const effectiveTwoPass = job.overrides?.twoPass ?? twoPass
+        const effectiveSubtitleMode = job.overrides?.subtitleMode ?? subtitleMode
+        const effectiveVideoBitrate = job.overrides?.videoBitrate ?? videoBitrate
+        const effectiveRateControlMode = job.overrides?.rateControlMode ?? rateControlMode
 
-      const tokens: PatternTokens = {
-        name: file.name.substring(0, file.name.lastIndexOf('.')),
-        codec: effectiveVideoCodec.replace('lib', ''),
-        ext: effectiveContainer
-      }
-      const outputFilename = buildFilenameFromPattern(renamePattern, tokens)
-      const finalFilename = outputFilename
-        .toLowerCase()
-        .endsWith(`.${effectiveContainer.toLowerCase()}`)
-        ? outputFilename
-        : `${outputFilename}.${effectiveContainer}`
+        const tokens: PatternTokens = {
+          name: file.name.substring(0, file.name.lastIndexOf('.')),
+          codec: effectiveVideoCodec.replace('lib', ''),
+          ext: effectiveContainer
+        }
+        const outputFilename = buildFilenameFromPattern(renamePattern, tokens)
+        const finalFilename = outputFilename
+          .toLowerCase()
+          .endsWith(`.${effectiveContainer.toLowerCase()}`)
+          ? outputFilename
+          : `${outputFilename}.${effectiveContainer}`
 
-      let targetDir = outputDirectory
-      if (!targetDir) {
-        const lastSlash = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'))
-        targetDir = file.path.substring(0, lastSlash)
-      }
-
-      const outputPath = await window.api.pathJoin(targetDir, finalFilename)
-
-      const options: EncodingOptions & { jobId: string } = {
-        inputPath: file.path,
-        outputPath,
-        container: effectiveContainer,
-        videoCodec: effectiveVideoCodec,
-        audioCodec: effectiveAudioCodec,
-        audioChannels: effectiveAudioChannels,
-        audioBitrate: effectiveAudioBitrate,
-        volumeDb: effectiveVolumeDb,
-        crf: effectiveCrf,
-        preset: effectivePreset,
-        threads: effectiveThreads,
-        trackSelection: effectiveTrackSelection,
-        ffmpegPath,
-        enableLogging,
-        logDirectory,
-        jobTimestamp,
-        twoPass: effectiveTwoPass,
-        subtitleMode: effectiveSubtitleMode,
-        videoBitrate: effectiveVideoBitrate,
-        rateControlMode: effectiveRateControlMode,
-        jobId: job.id
-      }
-
-      await new Promise<void>((resolve, reject) => {
-        const removeComplete = window.api.onEncodingComplete(({ jobId, outputPath: completed }) => {
-          if (jobId !== job.id) return
-          cleanup()
-          setEncodingLogs((prev) => [
-            ...prev,
-            `Completed: ${file.name}${completed ? ` -> ${completed}` : ''}`
-          ])
-          resolve()
-        })
-        const removeError = window.api.onEncodingError(({ jobId, error }) => {
-          if (jobId !== job.id) return
-          cleanup()
-          reject(new Error(error))
-        })
-
-        const cleanup = (): void => {
-          removeComplete()
-          removeError()
+        let targetDir = outputDirectory
+        if (!targetDir) {
+          const lastSlash = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'))
+          targetDir = file.path.substring(0, lastSlash)
         }
 
-        if (shouldSkipRef.current) {
-          shouldSkipRef.current = false
-          resolve()
-          return
+        const outputPath = await window.api.pathJoin(targetDir, finalFilename)
+
+        const options: EncodingOptions & { jobId: string } = {
+          inputPath: file.path,
+          outputPath,
+          container: effectiveContainer,
+          videoCodec: effectiveVideoCodec,
+          audioCodec: effectiveAudioCodec,
+          audioChannels: effectiveAudioChannels,
+          audioBitrate: effectiveAudioBitrate,
+          volumeDb: effectiveVolumeDb,
+          crf: effectiveCrf,
+          preset: effectivePreset,
+          threads: effectiveThreads,
+          trackSelection: effectiveTrackSelection,
+          ffmpegPath,
+          enableLogging,
+          logDirectory,
+          jobTimestamp,
+          twoPass: effectiveTwoPass,
+          subtitleMode: effectiveSubtitleMode,
+          videoBitrate: effectiveVideoBitrate,
+          rateControlMode: effectiveRateControlMode,
+          jobId: job.id
         }
 
-        window.api.startEncoding(options)
-      })
+        await new Promise<void>((resolve, reject) => {
+          let settled = false
+          const removeComplete = window.api.onEncodingComplete(
+            ({ jobId, outputPath: completed }) => {
+              if (jobId !== job.id) return
+              settle(() => {
+                setEncodingLogs((prev) => [
+                  ...prev,
+                  `Completed: ${file.name}${completed ? ` -> ${completed}` : ''}`
+                ])
+                resolve()
+              })
+            }
+          )
+          const removeError = window.api.onEncodingError(({ jobId, error }) => {
+            if (jobId !== job.id) return
+            settle(() => reject(new Error(error)))
+          })
+
+          const cleanup = (): void => {
+            removeComplete()
+            removeError()
+          }
+
+          const settle = (callback: () => void): void => {
+            if (settled) return
+            settled = true
+            cleanup()
+            callback()
+          }
+
+          if (shouldSkipRef.current) {
+            shouldSkipRef.current = false
+            settle(resolve)
+            return
+          }
+
+          void window.api.startEncoding(options).catch((error) => {
+            const message = error instanceof Error ? error.message : String(error)
+            settle(() => reject(new Error(message)))
+          })
+        })
       } finally {
         activeJobIdsRef.current.delete(job.id)
       }
@@ -309,7 +322,9 @@ export function useEncodingSession({
             shouldSkipRef.current = false
             setQueuedJobs((prev) =>
               prev.map((item) =>
-                item.id === job.id ? { ...item, status: 'canceled', progress: 0, error: undefined } : item
+                item.id === job.id
+                  ? { ...item, status: 'canceled', progress: 0, error: undefined }
+                  : item
               )
             )
             return
@@ -391,7 +406,12 @@ export function useEncodingSession({
 
   const handleSkipCurrent = (): void => {
     shouldSkipRef.current = true
-    for (const jobId of activeJobIdsRef.current) {
+    const activeJobIds =
+      activeJobIdsRef.current.size > 0
+        ? [...activeJobIdsRef.current]
+        : queuedJobs.filter((job) => job.status === 'encoding').map((job) => job.id)
+
+    for (const jobId of activeJobIds) {
       void window.api.cancelEncoding(jobId)
     }
     setEncodingLogs((prev) => [...prev, 'Skipping current file...'])
