@@ -1,14 +1,25 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { readdirSync, statSync, writeFileSync, readFileSync } from 'fs'
-import { exec, spawn } from 'child_process'
-import { promisify } from 'util'
+import { writeFileSync, readFileSync, type Dirent, type Stats } from 'fs'
+import { readdir, stat } from 'fs/promises'
+import { spawn } from 'child_process'
 import icon from '../../resources/icon.png?asset'
 import { startEncoding, cancelEncoding } from './ffmpeg'
 import { EncodingOptions } from '../preload/api.types'
 
-const execAsync = promisify(exec)
+const VIDEO_EXTENSIONS = new Set([
+  '.mp4',
+  '.mkv',
+  '.avi',
+  '.mov',
+  '.wmv',
+  '.flv',
+  '.webm',
+  '.m4v',
+  '.3gp',
+  '.ts'
+])
 
 /**
  * Checks if FFmpeg is installed and available on the system.
@@ -19,22 +30,19 @@ const execAsync = promisify(exec)
  * - Attempts to detect FFmpeg using `ffmpeg -version` command
  * - Tries to locate the executable path using platform-specific commands (where/which)
  */
-async function checkFfmpegInstallation(): Promise<{
+async function checkFfmpegInstallation(ffmpegPath?: string): Promise<{
   isInstalled: boolean
   version?: string
   path?: string
   error?: string
 }> {
+  const executable = ffmpegPath || 'ffmpeg'
+
   try {
-    const { stdout } = await execAsync('ffmpeg -version')
+    const stdout = await runBinary(executable, ['-version'])
     const versionMatch = stdout.match(/ffmpeg version ([^\s]+)/)
     const version = versionMatch ? versionMatch[1] : 'Unknown'
-
-    // Try to get the path - if this fails, the outer catch will handle it
-    const { stdout: wherePath } = await execAsync(
-      process.platform === 'win32' ? 'where ffmpeg' : 'which ffmpeg'
-    )
-    const path = wherePath.trim().split('\n')[0]
+    const path = ffmpegPath || (await locateExecutable('ffmpeg'))
 
     return {
       isInstalled: true,
@@ -54,14 +62,61 @@ async function checkFfmpegInstallation(): Promise<{
  *
  * @returns Promise with boolean indicating support
  */
-async function checkNvidiaSupport(): Promise<boolean> {
+async function checkNvidiaSupport(ffmpegPath?: string): Promise<boolean> {
   try {
-    // Check if ffmpeg lists nvenc encoders
-    const { stdout } = await execAsync('ffmpeg -hide_banner -encoders')
+    const stdout = await runBinary(ffmpegPath || 'ffmpeg', ['-hide_banner', '-encoders'])
     return stdout.includes('nvenc')
   } catch (error) {
     console.error('Failed to check NVIDIA support:', error)
     return false
+  }
+}
+
+function runBinary(executable: string, args: string[], timeoutMs = 10_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(executable, args)
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+
+    const timeout = setTimeout(() => {
+      proc.kill()
+      settle(() => reject(new Error(`${executable} timed out after ${timeoutMs}ms`)))
+    }, timeoutMs)
+
+    function settle(callback: () => void): void {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      callback()
+    }
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      stdout += data.toString()
+    })
+    proc.stderr?.on('data', (data: Buffer) => {
+      stderr += data.toString()
+    })
+    proc.on('close', (code) => {
+      if (code === 0) {
+        settle(() => resolve(stdout))
+        return
+      }
+      settle(() => reject(new Error(`${executable} exited with code ${code}: ${stderr}`)))
+    })
+    proc.on('error', (error) => {
+      settle(() => reject(error))
+    })
+  })
+}
+
+async function locateExecutable(executable: string): Promise<string | undefined> {
+  try {
+    const locator = process.platform === 'win32' ? 'where' : 'which'
+    const stdout = await runBinary(locator, [executable], 5_000)
+    return stdout.trim().split(/\r?\n/)[0]
+  } catch {
+    return undefined
   }
 }
 
@@ -92,19 +147,24 @@ async function selectFfmpegExecutable(): Promise<string | null> {
 
   // Verify it's actually FFmpeg
   try {
-    await new Promise<void>((resolve, reject) => {
-      const proc = spawn(selectedPath, ['-version'])
-      let stdout = ''
-      proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
-      proc.on('close', (code) => {
-        if (code === 0 && stdout.includes('ffmpeg version')) resolve()
-        else reject(new Error('Selected file is not a valid FFmpeg executable'))
-      })
-      proc.on('error', reject)
-    })
+    const stdout = await runBinary(selectedPath, ['-version'])
+    if (!stdout.includes('ffmpeg version')) {
+      throw new Error('Selected file is not a valid FFmpeg executable')
+    }
     return selectedPath
   } catch {
     throw new Error('Selected file is not a valid FFmpeg executable')
+  }
+}
+
+function openAllowedExternalUrl(url: string): void {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      shell.openExternal(parsed.toString())
+    }
+  } catch {
+    // invalid or disallowed URL - silently ignore
   }
 }
 
@@ -118,7 +178,7 @@ function createWindow(): void {
     icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true
     }
   })
 
@@ -127,7 +187,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openAllowedExternalUrl(details.url)
     return { action: 'deny' }
   })
 
@@ -167,37 +227,8 @@ app.whenReady().then(() => {
 
   ipcMain.handle('read-video-files', async (_, folderPath: string) => {
     try {
-      const files = readdirSync(folderPath)
-      const videoExtensions = [
-        '.mp4',
-        '.mkv',
-        '.avi',
-        '.mov',
-        '.wmv',
-        '.flv',
-        '.webm',
-        '.m4v',
-        '.3gp'
-      ]
-
-      const videoFiles = files
-        .filter((file) => {
-          const ext = file.toLowerCase().substring(file.lastIndexOf('.'))
-          return videoExtensions.includes(ext)
-        })
-        .map((file) => {
-          const fullPath = join(folderPath, file)
-          const stats = statSync(fullPath)
-          return {
-            name: file,
-            path: fullPath,
-            size: stats.size,
-            modified: stats.mtime.getTime()
-          }
-        })
-        .sort((a, b) => a.name.localeCompare(b.name))
-
-      return videoFiles
+      const videoFiles = await readVideoFilesRecursive(folderPath)
+      return videoFiles.sort((a, b) => a.path.localeCompare(b.path))
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       console.error('Error reading video files:', errorMessage)
@@ -205,13 +236,75 @@ app.whenReady().then(() => {
     }
   })
 
+  async function readVideoFilesRecursive(folderPath: string): Promise<
+    Array<{
+      name: string
+      path: string
+      size: number
+      modified: number
+    }>
+  > {
+    let entries: Dirent[]
+    try {
+      entries = await readdir(folderPath, { withFileTypes: true })
+    } catch (error) {
+      console.warn(
+        `Skipping unreadable folder ${folderPath}:`,
+        error instanceof Error ? error.message : error
+      )
+      return []
+    }
+
+    const nestedFiles = await Promise.all(
+      entries.map(async (entry) => {
+        const fullPath = join(folderPath, entry.name)
+
+        if (entry.isDirectory()) {
+          return readVideoFilesRecursive(fullPath)
+        }
+
+        if (!entry.isFile()) {
+          return []
+        }
+
+        const dotIndex = entry.name.lastIndexOf('.')
+        const ext = dotIndex >= 0 ? entry.name.substring(dotIndex).toLowerCase() : ''
+        if (!VIDEO_EXTENSIONS.has(ext)) {
+          return []
+        }
+
+        let stats: Stats
+        try {
+          stats = await stat(fullPath)
+        } catch (error) {
+          console.warn(
+            `Skipping unreadable file ${fullPath}:`,
+            error instanceof Error ? error.message : error
+          )
+          return []
+        }
+
+        return [
+          {
+            name: entry.name,
+            path: fullPath,
+            size: stats.size,
+            modified: stats.mtime.getTime()
+          }
+        ]
+      })
+    )
+
+    return nestedFiles.flat()
+  }
+
   // FFmpeg-related IPC handlers
-  ipcMain.handle('check-ffmpeg', async () => {
-    return await checkFfmpegInstallation()
+  ipcMain.handle('check-ffmpeg', async (_, ffmpegPath?: string) => {
+    return await checkFfmpegInstallation(ffmpegPath)
   })
 
-  ipcMain.handle('check-nvidia-support', async () => {
-    return await checkNvidiaSupport()
+  ipcMain.handle('check-nvidia-support', async (_, ffmpegPath?: string) => {
+    return await checkNvidiaSupport(ffmpegPath)
   })
 
   ipcMain.handle('select-ffmpeg-path', async () => {
@@ -219,14 +312,14 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('open-external', async (_, url: string) => {
-    try {
-      const parsed = new URL(url)
-      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
-        shell.openExternal(url)
-      }
-    } catch {
-      // invalid or disallowed URL - silently ignore
+    openAllowedExternalUrl(url)
+  })
+
+  ipcMain.handle('path-join', async (_, paths: string[]) => {
+    if (!Array.isArray(paths) || paths.some((path) => typeof path !== 'string')) {
+      throw new Error('Invalid path arguments')
     }
+    return join(...paths)
   })
 
   ipcMain.handle('start-encoding', async (event, options: EncodingOptions & { jobId?: string }) => {
@@ -246,29 +339,17 @@ app.whenReady().then(() => {
       ? ffmpegPath.replace(/ffmpeg(\.exe)?$/i, (_, ext) => `ffprobe${ext ?? ''}`)
       : 'ffprobe'
     // Use spawn with an args array to prevent shell injection via filePath
-    return new Promise((resolve, reject) => {
-      const proc = spawn(probeBin, [
-        '-v', 'quiet',
-        '-print_format', 'json',
-        '-show_streams',
-        '-show_format',
-        filePath
-      ])
-      let stdout = ''
-      let stderr = ''
-      proc.stdout?.on('data', (d: Buffer) => { stdout += d.toString() })
-      proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
-      proc.on('close', (code) => {
-        if (code === 0) {
-          try { resolve(JSON.parse(stdout)) } catch (e) {
-            reject(new Error(`Failed to parse ffprobe output: ${e}`))
-          }
-        } else {
-          reject(new Error(`ffprobe exited with code ${code}: ${stderr}`))
-        }
-      })
-      proc.on('error', reject)
-    })
+    const stdout = await runBinary(
+      probeBin,
+      ['-v', 'quiet', '-print_format', 'json', '-show_streams', '-show_format', filePath],
+      20_000
+    )
+
+    try {
+      return JSON.parse(stdout)
+    } catch (error) {
+      throw new Error(`Failed to parse ffprobe output: ${error}`)
+    }
   })
 
   ipcMain.handle(

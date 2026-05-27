@@ -94,7 +94,6 @@ export default function EncodingSettings({
   hasNvidiaGpu,
   isNvenc
 }: EncodingSettingsProps): React.JSX.Element {
-
   // Enforce container codec compatibility
   useEffect(() => {
     if (container === 'webm') {
@@ -105,7 +104,11 @@ export default function EncodingSettings({
         setAudioCodec('libopus')
       }
     } else if (container === 'mp4') {
-      if (!['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(videoCodec)) {
+      if (
+        !['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(
+          videoCodec
+        )
+      ) {
         setVideoCodec('libx264')
       }
       if (!['aac', 'libopus', 'copy'].includes(audioCodec)) {
@@ -119,7 +122,15 @@ export default function EncodingSettings({
         setAudioCodec('aac')
       }
     }
-  }, [container])
+  }, [audioCodec, container, setAudioCodec, setVideoCodec, videoCodec])
+
+  const canEnableTwoPass = rateControlMode === 'bitrate' && videoCodec !== 'copy'
+
+  useEffect(() => {
+    if (twoPass && !canEnableTwoPass) {
+      setTwoPass(false)
+    }
+  }, [canEnableTwoPass, setTwoPass, twoPass])
 
   const ALL_VIDEO_CODECS = [
     { key: 'libx264', label: 'H.264 (libx264)' },
@@ -143,8 +154,12 @@ export default function EncodingSettings({
 
   const availableVideoCodecs = ALL_VIDEO_CODECS.filter((codec) => {
     if (container === 'webm') return ['libvpx-vp9', 'av1_nvenc', 'copy'].includes(codec.key)
-    if (container === 'mp4') return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(codec.key)
-    if (container === 'mov') return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'copy'].includes(codec.key)
+    if (container === 'mp4')
+      return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(
+        codec.key
+      )
+    if (container === 'mov')
+      return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'copy'].includes(codec.key)
     return true // mkv supports all
   })
 
@@ -262,13 +277,17 @@ export default function EncodingSettings({
               </div>
 
               <div className="flex flex-col gap-2 justify-center">
-                <Checkbox isSelected={twoPass} onValueChange={setTwoPass} isDisabled={isEncoding}>
+                <Checkbox
+                  isSelected={twoPass}
+                  onValueChange={setTwoPass}
+                  isDisabled={isEncoding || !canEnableTwoPass}
+                >
                   Two-Pass Encoding
                 </Checkbox>
                 <p className="text-tiny text-default-400 pl-7">
-                  {twoPass && rateControlMode === 'crf'
-                    ? 'Warning: Two-Pass usually ineffective with CRF depending on codec.'
-                    : 'Encodes twice for better quality/size ratio. Slower.'}
+                  {canEnableTwoPass
+                    ? 'Encodes twice for better quality/size ratio. Slower.'
+                    : 'Requires average bitrate mode and a video encoder.'}
                 </p>
               </div>
             </div>

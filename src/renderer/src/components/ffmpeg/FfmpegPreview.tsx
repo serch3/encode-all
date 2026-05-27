@@ -1,6 +1,23 @@
 import { Card, CardBody, CardHeader } from '@heroui/react'
 import { buildFilenameFromPattern } from '../../utils/pattern'
 import type { PatternTokens } from '../../types'
+import type { EncodingOptions } from '../../../../preload/api.types'
+import {
+  buildSinglePassFfmpegArgs,
+  buildTwoPassFfmpegArgs,
+  canUseTwoPass
+} from '../../../../shared/ffmpegArgs'
+
+const quoteArg = (arg: string): string => {
+  if (/^[A-Za-z0-9._:/\\?=-]+$/.test(arg)) {
+    return arg
+  }
+  return `"${arg.replace(/"/g, '\\"')}"`
+}
+
+const isWindowsPreview = (): boolean => {
+  return navigator.userAgent.toLowerCase().includes('windows')
+}
 
 interface FfmpegPreviewProps {
   outputFormat: string
@@ -18,6 +35,10 @@ interface FfmpegPreviewProps {
   trackSelection?: string
   crf?: number
   preset?: string
+  twoPass?: boolean
+  subtitleMode?: string
+  videoBitrate?: number
+  rateControlMode?: 'crf' | 'bitrate'
   ffmpegPath?: string
 }
 
@@ -37,56 +58,18 @@ export default function FfmpegPreview({
   trackSelection = 'auto',
   crf = 23,
   preset = 'medium',
+  twoPass = false,
+  subtitleMode = 'none',
+  videoBitrate = 2500,
+  rateControlMode = 'crf',
   ffmpegPath
 }: FfmpegPreviewProps): React.JSX.Element {
   const generateFfmpegCommand = (): string => {
-    const isNvenc = videoCodec.includes('nvenc')
-    const qualityFlag = isNvenc ? '-cq' : '-crf'
     const executable = ffmpegPath ? `"${ffmpegPath}"` : 'ffmpeg'
-
-    if (inputFiles.length === 0) {
-      return `${executable} -i input.mp4 -c:v ${videoCodec} ${qualityFlag} ${crf} -preset ${preset} -c:a ${audioCodec} output.${outputFormat}`
-    }
 
     // For batch preview, we only show the command for the FIRST file
     // to avoid confusion about how batch processing works (it's 1:1, not N:1)
-    const firstFile = inputFiles[0]
-    const inputArgs = `-i "${firstFile}"`
-
-    let mapPart = ''
-    let subtitlePart = ''
-
-    if (trackSelection === 'all') {
-      mapPart = '-map 0'
-      // Try to copy subtitles if container supports it (mostly MKV)
-      // For MP4, this might fail if input is PGS, but user is warned
-      subtitlePart = '-c:s copy'
-    } else if (trackSelection === 'all_audio') {
-      mapPart = '-map 0:v -map 0:a'
-      // Explicitly disable subtitles to be safe, or just don't map them
-      // If we map specific streams, unmapped ones are dropped
-    }
-    // 'auto' uses default ffmpeg selection (1 video, 1 audio, 1 sub usually)
-
-    const videoPart = `-c:v ${videoCodec} ${qualityFlag} ${crf} -preset ${preset}`
-    const audioPart = audioCodec === 'copy' ? '-c:a copy' : `-c:a ${audioCodec}`
-    const channelPart =
-      audioChannels !== 'same'
-        ? ` -ac ${
-            audioChannels === 'mono'
-              ? 1
-              : audioChannels === 'stereo'
-                ? 2
-                : audioChannels === '5.1'
-                  ? 6
-                  : ''
-          }`
-        : ''
-    const bitratePart = audioCodec !== 'copy' && audioBitrate > 0 ? ` -b:a ${audioBitrate}k` : ''
-    const volumePart = volumeDb !== 0 ? ` -filter:a "volume=${volumeDb}dB"` : ''
-
-    const threadArg = threads > 0 ? `-threads ${threads}` : ''
-    // build output file name from pattern tokens
+    const firstFile = inputFiles[0] ?? 'input.mp4'
     const tokens: PatternTokens = {
       name: 'example',
       codec: videoCodec.replace('lib', ''),
@@ -96,8 +79,45 @@ export default function FfmpegPreview({
     const fileWithExt = outputFile.endsWith('.' + outputFormat)
       ? outputFile
       : `${outputFile}.${outputFormat}`
+    const outputPath = outputDirectory
+      ? `${outputDirectory}/${fileWithExt}`
+      : `<output-folder>/${fileWithExt}`
 
-    return `${executable} ${inputArgs} ${mapPart} ${videoPart} ${audioPart}${channelPart}${bitratePart}${volumePart} ${subtitlePart} ${threadArg} "${outputDirectory}/${fileWithExt}"`.trim()
+    const options: EncodingOptions = {
+      inputPath: firstFile,
+      outputPath,
+      container: outputFormat,
+      videoCodec,
+      audioCodec,
+      audioChannels,
+      audioBitrate,
+      volumeDb,
+      crf,
+      preset,
+      threads,
+      trackSelection,
+      ffmpegPath,
+      enableLogging: false,
+      twoPass,
+      subtitleMode,
+      videoBitrate,
+      rateControlMode
+    }
+
+    if (canUseTwoPass(options)) {
+      const { pass1Args, pass2Args } = buildTwoPassFfmpegArgs(
+        options,
+        outputPath,
+        'ffmpeg2pass-preview',
+        isWindowsPreview() ? 'NUL' : '/dev/null'
+      )
+      return [
+        `${executable} ${pass1Args.map(quoteArg).join(' ')}`,
+        `${executable} ${pass2Args.map(quoteArg).join(' ')}`
+      ].join('\n')
+    }
+
+    return `${executable} ${buildSinglePassFfmpegArgs(options, outputPath).map(quoteArg).join(' ')}`
   }
 
   return (
@@ -107,7 +127,7 @@ export default function FfmpegPreview({
       </CardHeader>
       <CardBody>
         <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg font-mono text-sm overflow-x-auto">
-          <code>{generateFfmpegCommand()}</code>
+          <code className="whitespace-pre-wrap">{generateFfmpegCommand()}</code>
         </div>
         {encodingError && (
           <div className="text-xs text-danger flex items-center justify-between gap-3">

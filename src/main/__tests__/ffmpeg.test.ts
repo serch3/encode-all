@@ -47,7 +47,10 @@ const createMockProcess = (onKillExitCode: number | null = null): ChildProcess =
   return proc
 }
 
-const createMainWindowMock = () => ({
+const createMainWindowMock = (): {
+  webContents: { send: jest.Mock }
+  setProgressBar: jest.Mock
+} => ({
   webContents: {
     send: jest.fn()
   },
@@ -77,7 +80,7 @@ const createBaseOptions = (): EncodingOptions => ({
   rateControlMode: 'crf'
 })
 
-const createLogStream = () => ({
+const createLogStream = (): { write: jest.Mock; end: jest.Mock } => ({
   write: jest.fn(),
   end: jest.fn()
 })
@@ -94,7 +97,7 @@ beforeEach(() => {
 describe('startEncoding', () => {
   test('builds single-pass args with audio, subtitles, and mapping', async () => {
     const proc = createMockProcess()
-    spawnMock.mockImplementation((exe: string, args: string[]) => {
+    spawnMock.mockImplementation(() => {
       process.nextTick(() => proc.emit('close', 0))
       return proc
     })
@@ -133,9 +136,9 @@ describe('startEncoding', () => {
       '-threads',
       options.threads.toString(),
       '-map',
-      '0:v:0',
+      '0:v:0?',
       '-map',
-      '0:a',
+      '0:a?',
       '-map',
       '0:s?',
       options.outputPath
@@ -219,6 +222,77 @@ describe('startEncoding', () => {
       jobId: expect.any(String),
       outputPath: options.outputPath
     })
+  })
+
+  test('maps only supported media stream types when all tracks are selected', async () => {
+    const proc = createMockProcess()
+    spawnMock.mockImplementation(() => {
+      process.nextTick(() => proc.emit('close', 0))
+      return proc
+    })
+    createWriteStreamMock.mockReturnValue(createLogStream())
+
+    const mainWindow = createMainWindowMock()
+    const options = {
+      ...createBaseOptions(),
+      trackSelection: 'all',
+      subtitleMode: 'copy'
+    } satisfies EncodingOptions
+
+    await startEncoding(options, mainWindow as never)
+
+    const args = spawnMock.mock.calls[0][1] as string[]
+    expect(args).toEqual(expect.arrayContaining(['-map', '0:v?', '-map', '0:a?', '-map', '0:s?']))
+    const mapPairs = args.flatMap((arg, index) =>
+      arg === '-map' ? [`-map ${args[index + 1]}`] : []
+    )
+    expect(mapPairs).not.toContain('-map 0')
+  })
+
+  test('falls back to single-pass when two-pass is requested outside bitrate mode', async () => {
+    const proc = createMockProcess()
+    spawnMock.mockImplementation(() => {
+      process.nextTick(() => proc.emit('close', 0))
+      return proc
+    })
+    createWriteStreamMock.mockReturnValue(createLogStream())
+
+    const mainWindow = createMainWindowMock()
+    const options = {
+      ...createBaseOptions(),
+      twoPass: true,
+      rateControlMode: 'crf'
+    } satisfies EncodingOptions
+
+    await startEncoding(options, mainWindow as never)
+
+    expect(spawnMock).toHaveBeenCalledTimes(1)
+    expect(spawnMock.mock.calls[0][1]).not.toContain('-pass')
+    expect(mainWindow.webContents.send).toHaveBeenCalledWith('encoding-log', {
+      jobId: expect.any(String),
+      log: '[warn] Two-pass encoding requires average bitrate mode and was skipped.\n'
+    })
+  })
+
+  test('emits an encoding error when setup fails before ffmpeg starts', async () => {
+    createWriteStreamMock.mockImplementation(() => {
+      throw new Error('log denied')
+    })
+
+    const mainWindow = createMainWindowMock()
+    const options = {
+      ...createBaseOptions(),
+      jobId: 'job-log-fail'
+    }
+
+    await startEncoding(options, mainWindow as never)
+
+    expect(spawnMock).not.toHaveBeenCalled()
+    expect(mainWindow.webContents.send).toHaveBeenCalledWith('encoding-error', {
+      jobId: 'job-log-fail',
+      error: 'log denied'
+    })
+    expect(powerSaveBlockerStartMock).not.toHaveBeenCalled()
   })
 
   test('cancelEncoding kills active job and closes log stream', async () => {

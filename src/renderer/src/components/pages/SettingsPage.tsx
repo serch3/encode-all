@@ -18,6 +18,8 @@ interface SettingsProps {
   onEnableLoggingChange: (value: boolean) => void
   logDirectory: string
   onSelectLogDirectory: () => void
+  ffmpegPath?: string
+  onFfmpegPathSelected?: (path: string) => void
 }
 
 export default function SettingsPage({
@@ -27,7 +29,9 @@ export default function SettingsPage({
   enableLogging,
   onEnableLoggingChange,
   logDirectory,
-  onSelectLogDirectory
+  onSelectLogDirectory,
+  ffmpegPath,
+  onFfmpegPathSelected
 }: SettingsProps): React.JSX.Element {
   // FFmpeg status state
   const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus>({ isInstalled: false })
@@ -38,7 +42,7 @@ export default function SettingsPage({
   const checkNvidiaStatus = useCallback(async (): Promise<void> => {
     setIsCheckingNvidia(true)
     try {
-      const supported = await window.api?.checkNvidiaSupport()
+      const supported = await window.api?.checkNvidiaSupport(ffmpegPath)
       setNvidiaStatus(supported)
     } catch (error) {
       console.error('Failed to check NVIDIA support:', error)
@@ -46,12 +50,12 @@ export default function SettingsPage({
     } finally {
       setIsCheckingNvidia(false)
     }
-  }, [])
+  }, [ffmpegPath])
 
   const checkFfmpegStatus = useCallback(async (): Promise<void> => {
     setIsCheckingFfmpeg(true)
     try {
-      const status = await window.api?.checkFfmpeg()
+      const status = await window.api?.checkFfmpeg(ffmpegPath)
       setFfmpegStatus(status || { isInstalled: false, error: 'API not available' })
 
       // Also re-check NVIDIA support when checking FFmpeg
@@ -66,13 +70,19 @@ export default function SettingsPage({
     } finally {
       setIsCheckingFfmpeg(false)
     }
-  }, [checkNvidiaStatus])
+  }, [checkNvidiaStatus, ffmpegPath])
 
   const handleSelectFfmpegPath = async (): Promise<void> => {
     try {
       const path = await window.api?.selectFfmpegPath()
       if (path) {
-        await checkFfmpegStatus()
+        onFfmpegPathSelected?.(path)
+        const status = await window.api?.checkFfmpeg(path)
+        setFfmpegStatus(status || { isInstalled: false, error: 'API not available' })
+        if (status?.isInstalled) {
+          const supported = await window.api?.checkNvidiaSupport(path)
+          setNvidiaStatus(Boolean(supported))
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to select FFmpeg path'

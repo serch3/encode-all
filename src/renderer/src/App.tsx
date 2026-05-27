@@ -8,12 +8,26 @@ import { DropZone } from './components/shared'
 import Layout from './components/layout'
 import { SettingsPage, GeneralPage, AboutPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
-import { QueueDrawer, ProfileManager, EncodingSettings, FloatingProgress } from './components/encoding'
+import {
+  QueueDrawer,
+  ProfileManager,
+  EncodingSettings,
+  FloatingProgress
+} from './components/encoding'
 import { buildFilenameFromPattern } from './utils/pattern'
 import type { PatternTokens, EncodingProfile } from './types'
 
 // Set to true to always show the FFmpeg setup modal during development
 const FORCE_FFMPEG_MODAL = false
+const FFMPEG_PATH_STORAGE_KEY = 'ffmpeg-path'
+
+function readSavedFfmpegPath(): string | undefined {
+  try {
+    return localStorage.getItem(FFMPEG_PATH_STORAGE_KEY) || undefined
+  } catch {
+    return undefined
+  }
+}
 
 function App(): React.JSX.Element {
   const [showFfmpegPreview, setShowFfmpegPreview] = useState<boolean>(false)
@@ -21,7 +35,7 @@ function App(): React.JSX.Element {
   const [showFfmpegSetup, setShowFfmpegSetup] = useState<boolean>(false)
   const [ffmpegChecked, setFfmpegChecked] = useState<boolean>(false)
   const [hasNvidiaGpu, setHasNvidiaGpu] = useState<boolean>(false)
-  const [ffmpegPath, setFfmpegPath] = useState<string | undefined>(undefined)
+  const [ffmpegPath, setFfmpegPath] = useState<string | undefined>(readSavedFfmpegPath)
   const [showProgressPage, setShowProgressPage] = useState<boolean>(false)
 
   const config = useEncodingConfig()
@@ -36,6 +50,11 @@ function App(): React.JSX.Element {
     config
   })
 
+  const handleFfmpegPathSelected = (path: string): void => {
+    setFfmpegPath(path)
+    localStorage.setItem(FFMPEG_PATH_STORAGE_KEY, path)
+  }
+
   // Check FFmpeg installation on startup
   useEffect(() => {
     const checkFFmpeg = async (): Promise<void> => {
@@ -44,17 +63,15 @@ function App(): React.JSX.Element {
       // Always check for NVIDIA support if FFmpeg is checked or we are about to check it
       const checkNvidia = async (): Promise<void> => {
         try {
-          const nvidiaSupported = await window.api?.checkNvidiaSupport()
-          if (nvidiaSupported) {
-            setHasNvidiaGpu(true)
-          }
+          const nvidiaSupported = await window.api?.checkNvidiaSupport(ffmpegPath)
+          setHasNvidiaGpu(Boolean(nvidiaSupported))
         } catch (e) {
           console.error('Failed to check NVIDIA support', e)
         }
       }
 
       try {
-        const status = await window.api?.checkFfmpeg()
+        const status = await window.api?.checkFfmpeg(ffmpegPath)
         if (status?.path) {
           setFfmpegPath(status.path)
         }
@@ -79,7 +96,7 @@ function App(): React.JSX.Element {
     }
 
     void checkFFmpeg()
-  }, [])
+  }, [ffmpegPath])
 
   // Handlers for FFmpeg setup modal
   const handleFfmpegSetupClose = (): void => {
@@ -296,7 +313,9 @@ function App(): React.JSX.Element {
                       <Button
                         color="primary"
                         className="w-full h-12 text-base font-semibold"
-                        isDisabled={!ffmpegChecked || selectedJobs.length === 0 || session.isEncoding}
+                        isDisabled={
+                          !ffmpegChecked || selectedJobs.length === 0 || session.isEncoding
+                        }
                         onPress={() => {
                           setShowProgressPage(true)
                           session.handleStartEncoding()
@@ -325,6 +344,10 @@ function App(): React.JSX.Element {
                       trackSelection={config.trackSelection}
                       crf={config.crf}
                       preset={config.preset}
+                      twoPass={config.twoPass}
+                      subtitleMode={config.subtitleMode}
+                      videoBitrate={config.videoBitrate}
+                      rateControlMode={config.rateControlMode}
                       ffmpegPath={ffmpegPath}
                     />
                   </div>
@@ -354,6 +377,8 @@ function App(): React.JSX.Element {
             onEnableLoggingChange={config.setEnableLogging}
             logDirectory={config.logDirectory}
             onSelectLogDirectory={handleSelectLogFolder}
+            ffmpegPath={ffmpegPath}
+            onFfmpegPathSelected={handleFfmpegPathSelected}
           />
         )}
         {active === 'about' && <AboutPage />}
@@ -390,6 +415,8 @@ function App(): React.JSX.Element {
         isOpen={FORCE_FFMPEG_MODAL || showFfmpegSetup}
         onClose={handleFfmpegSetupClose}
         onSkip={handleFfmpegSetupSkip}
+        ffmpegPath={ffmpegPath}
+        onPathSelected={handleFfmpegPathSelected}
       />
     </>
   )

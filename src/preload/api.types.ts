@@ -34,13 +34,13 @@ export interface CustomAPI {
       modified: number
     }>
   >
-  checkFfmpeg: () => Promise<{
+  checkFfmpeg: (ffmpegPath?: string) => Promise<{
     isInstalled: boolean
     version?: string
     path?: string
     error?: string
   }>
-  checkNvidiaSupport: () => Promise<boolean>
+  checkNvidiaSupport: (ffmpegPath?: string) => Promise<boolean>
   selectFfmpegPath: () => Promise<string | null>
   openExternal: (url: string) => Promise<void>
   startEncoding: (options: EncodingOptions & { jobId?: string }) => Promise<void>
@@ -49,7 +49,6 @@ export interface CustomAPI {
   onEncodingLog: (callback: (payload: EncodingLogPayload) => void) => () => void
   onEncodingComplete: (callback: (payload: EncodingCompletePayload) => void) => () => void
   onEncodingError: (callback: (payload: EncodingErrorPayload) => void) => () => void
-  removeEncodingListeners: () => void
   pathJoin: (...paths: string[]) => Promise<string>
   saveTextFile: (content: string, defaultName?: string) => Promise<boolean>
   readTextFile: () => Promise<string | null>

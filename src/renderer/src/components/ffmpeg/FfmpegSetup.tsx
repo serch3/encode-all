@@ -19,20 +19,24 @@ interface FfmpegSetupProps {
   isOpen: boolean
   onClose: () => void
   onSkip?: () => void
+  ffmpegPath?: string
+  onPathSelected?: (path: string) => void
 }
 
 export default function FfmpegSetup({
   isOpen,
   onClose,
-  onSkip
+  onSkip,
+  ffmpegPath,
+  onPathSelected
 }: FfmpegSetupProps): React.JSX.Element {
   const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus>({ isInstalled: false })
   const [isChecking, setIsChecking] = useState(false)
 
-  const checkFfmpegStatus = async (): Promise<void> => {
+  const checkFfmpegStatus = async (path = ffmpegPath): Promise<void> => {
     setIsChecking(true)
     try {
-      const status = await window.api?.checkFfmpeg()
+      const status = await window.api?.checkFfmpeg(path)
       setFfmpegStatus(status)
     } catch (error) {
       setFfmpegStatus({
@@ -48,7 +52,9 @@ export default function FfmpegSetup({
     if (isOpen) {
       checkFfmpegStatus()
     }
-  }, [isOpen])
+    // The check function only uses the latest ffmpegPath prop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, ffmpegPath])
 
   const handleOpenDownloadPage = (): void => {
     window.api?.openExternal('https://ffmpeg.org/download.html')
@@ -58,8 +64,8 @@ export default function FfmpegSetup({
     try {
       const path = await window.api?.selectFfmpegPath()
       if (path) {
-        // Update FFmpeg path in settings and re-check
-        await checkFfmpegStatus()
+        onPathSelected?.(path)
+        await checkFfmpegStatus(path)
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to select FFmpeg path'
@@ -216,7 +222,7 @@ export default function FfmpegSetup({
 
           <Button
             color="primary"
-            onPress={ffmpegStatus.isInstalled ? onClose : checkFfmpegStatus}
+            onPress={ffmpegStatus.isInstalled ? onClose : () => void checkFfmpegStatus()}
             isLoading={isChecking}
           >
             {ffmpegStatus.isInstalled ? 'Continue' : 'Check Again'}

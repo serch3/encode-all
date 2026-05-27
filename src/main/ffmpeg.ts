@@ -3,6 +3,11 @@ import { BrowserWindow, powerSaveBlocker } from 'electron'
 import { createWriteStream, WriteStream, mkdirSync, existsSync } from 'fs'
 import { join, basename, dirname, extname } from 'path'
 import { EncodingOptions } from '../preload/api.types'
+import {
+  buildSinglePassFfmpegArgs,
+  buildTwoPassFfmpegArgs,
+  canUseTwoPass
+} from '../shared/ffmpegArgs'
 
 type JobRecord = {
   id: string
@@ -10,9 +15,12 @@ type JobRecord = {
   logStream: WriteStream | null
   duration: number
   outputPath: string
+  hasPowerSaveBlocker: boolean
+  canceled: boolean
 }
 
 const jobs = new Map<string, JobRecord>()
+const reservedOutputPaths = new Set<string>()
 let powerSaveBlockerId: number | null = null
 let powerSaveBlockerRefs = 0
 
@@ -33,12 +41,12 @@ function releasePowerSaveBlocker(): void {
 
 export function cancelEncoding(jobId?: string): void {
   const cancelJob = (job: JobRecord): void => {
-    job.process?.kill()
+    job.canceled = true
+    const processToKill = job.process
     job.process = null
-    job.logStream?.end()
-    job.logStream = null
-    releasePowerSaveBlocker()
-    jobs.delete(job.id)
+    processToKill?.kill()
+    closeLogStream(job)
+    releaseJobPowerSaveBlocker(job)
   }
 
   if (jobId) {
@@ -59,17 +67,49 @@ export function cancelEncoding(jobId?: string): void {
  * are tried until a free slot is found.
  */
 function resolveUniqueOutputPath(filePath: string): string {
-  if (!existsSync(filePath)) return filePath
   const dir = dirname(filePath)
   const ext = extname(filePath)
   const base = basename(filePath, ext)
+
+  if (!existsSync(filePath) && !reservedOutputPaths.has(normalizeOutputPath(filePath))) {
+    return filePath
+  }
+
   let counter = 1
   let candidate: string
   do {
     candidate = join(dir, `${base}_${counter}${ext}`)
     counter++
-  } while (existsSync(candidate))
+  } while (existsSync(candidate) || reservedOutputPaths.has(normalizeOutputPath(candidate)))
   return candidate
+}
+
+function reserveOutputPath(filePath: string): string {
+  const resolved = resolveUniqueOutputPath(filePath)
+  reservedOutputPaths.add(normalizeOutputPath(resolved))
+  return resolved
+}
+
+function normalizeOutputPath(filePath: string): string {
+  return process.platform === 'win32' ? filePath.toLowerCase() : filePath
+}
+
+function closeLogStream(job: JobRecord): void {
+  job.logStream?.end()
+  job.logStream = null
+}
+
+function releaseJobPowerSaveBlocker(job: JobRecord): void {
+  if (!job.hasPowerSaveBlocker) return
+  job.hasPowerSaveBlocker = false
+  releasePowerSaveBlocker()
+}
+
+function finalizeJob(job: JobRecord): void {
+  closeLogStream(job)
+  releaseJobPowerSaveBlocker(job)
+  reservedOutputPaths.delete(normalizeOutputPath(job.outputPath))
+  jobs.delete(job.id)
 }
 
 // Helper to run ffmpeg command as promise
@@ -155,7 +195,7 @@ export async function startEncoding(
   } = options
 
   const jobId = maybeJobId || pathHash(`${inputPath}-${outputPath}-${Date.now()}`)
-  const resolvedOutputPath = resolveUniqueOutputPath(outputPath)
+  const resolvedOutputPath = reserveOutputPath(outputPath)
 
   // Create job record
   const job: JobRecord = {
@@ -163,7 +203,9 @@ export async function startEncoding(
     process: null,
     logStream: null,
     duration: 0,
-    outputPath: resolvedOutputPath
+    outputPath: resolvedOutputPath,
+    hasPowerSaveBlocker: false,
+    canceled: false
   }
   jobs.set(jobId, job)
 
@@ -174,111 +216,72 @@ export async function startEncoding(
     })
   }
 
-  // Base arguments — no -y: unique path is chosen above so we never overwrite
-  const baseArgs = ['-i', inputPath]
-
-  // Preserve metadata by default
-  baseArgs.push('-map_metadata', '0')
-
-  // Common Video Args construction
-  const videoArgs: string[] = []
-  videoArgs.push('-c:v', videoCodec)
-  if (videoCodec !== 'copy') {
-    if (rateControlMode === 'bitrate') {
-        videoArgs.push('-b:v', `${videoBitrate}k`)
-    } else {
-        // CRF mode
-        if (videoCodec.includes('nvenc')) {
-            videoArgs.push('-cq', crf.toString())
-        } else {
-            videoArgs.push('-crf', crf.toString())
-        }
-    }
-    videoArgs.push('-preset', preset)
-  }
-
-  // Audio Args
-  const audioArgs: string[] = []
-  audioArgs.push('-c:a', audioCodec)
-  if (audioCodec !== 'copy') {
-    if (audioBitrate > 0) {
-      audioArgs.push('-b:a', `${audioBitrate}k`)
-    }
-    if (audioChannels !== 'same') {
-      if (audioChannels === 'mono') audioArgs.push('-ac', '1')
-      if (audioChannels === 'stereo') audioArgs.push('-ac', '2')
-      if (audioChannels === '5.1') audioArgs.push('-ac', '6')
-    }
-    if (volumeDb !== 0) {
-      audioArgs.push('-filter:a', `volume=${volumeDb}dB`)
-    }
-  }
-
-  // Subtitle Args
-  const subtitleArgs: string[] = []
-  if (subtitleMode === 'none') {
-    subtitleArgs.push('-sn')
-  } else if (subtitleMode === 'copy') {
-    // If we are copying, we need to map them.
-    subtitleArgs.push('-c:s', 'copy')
-  }
-
-  // Common Args (Threads, etc)
-  const commonArgs: string[] = []
-  if (threads > 0) {
-    commonArgs.push('-threads', threads.toString())
-  }
-
-  // Track Selection logic to maps
-  const mapArgs: string[] = []
-  if (trackSelection === 'all') {
-    mapArgs.push('-map', '0')
-  } else if (trackSelection === 'all_audio') {
-    mapArgs.push('-map', '0:v:0', '-map', '0:a')
-    // If subtitle mode is copy, include all subtitles
-    if (subtitleMode === 'copy') {
-      mapArgs.push('-map', '0:s?')
-    }
-  } else {
-    // Auto
-    if (subtitleMode === 'copy') {
-      // If user picked 'copy' subs but left track selection on Auto,
-      // force map all subtitles so they aren't dropped by FFmpeg defaults.
-      mapArgs.push('-map', '0:s?')
-    }
-  }
-
-  // Logging setup
-  let logPath: string | null = null
-  const filename = basename(resolvedOutputPath)
-
-  if (enableLogging) {
-    if (logDirectory) {
-      logPath = join(logDirectory, `${filename}.log`)
-    } else if (jobTimestamp) {
-      const outputDir = dirname(outputPath)
-      const logsFolder = join(outputDir, `logs_${jobTimestamp}`)
-
-      if (!existsSync(logsFolder)) {
-        mkdirSync(logsFolder, { recursive: true })
-      }
-      logPath = join(logsFolder, `${filename}.log`)
-    } else {
-      logPath = `${outputPath}.log`
-    }
-    job.logStream = createWriteStream(logPath)
-  }
-
-  // Prevent system sleep during encoding
-  retainPowerSaveBlocker()
-
   const executable = ffmpegPath || 'ffmpeg'
+  const effectiveTwoPass = canUseTwoPass({ twoPass, videoCodec, rateControlMode })
 
   try {
-    if (twoPass && videoCodec !== 'copy') {
+    const effectiveOptions: EncodingOptions = {
+      inputPath,
+      outputPath: resolvedOutputPath,
+      container: options.container,
+      videoCodec,
+      audioCodec,
+      audioChannels,
+      audioBitrate,
+      volumeDb,
+      crf,
+      preset,
+      threads,
+      trackSelection,
+      ffmpegPath,
+      enableLogging,
+      logDirectory,
+      jobTimestamp,
+      twoPass: effectiveTwoPass,
+      subtitleMode,
+      videoBitrate,
+      rateControlMode
+    }
+
+    // Logging setup
+    let logPath: string | null = null
+    const filename = basename(resolvedOutputPath)
+
+    if (enableLogging) {
+      if (logDirectory) {
+        if (!existsSync(logDirectory)) {
+          mkdirSync(logDirectory, { recursive: true })
+        }
+        logPath = join(logDirectory, `${filename}.log`)
+      } else if (jobTimestamp) {
+        const outputDir = dirname(outputPath)
+        const logsFolder = join(outputDir, `logs_${jobTimestamp}`)
+
+        if (!existsSync(logsFolder)) {
+          mkdirSync(logsFolder, { recursive: true })
+        }
+        logPath = join(logsFolder, `${filename}.log`)
+      } else {
+        logPath = `${resolvedOutputPath}.log`
+      }
+      job.logStream = createWriteStream(logPath)
+    }
+
+    // Prevent system sleep during encoding
+    retainPowerSaveBlocker()
+    job.hasPowerSaveBlocker = true
+
+    if (twoPass && !effectiveTwoPass) {
+      mainWindow.webContents.send('encoding-log', {
+        jobId,
+        log: '[warn] Two-pass encoding requires average bitrate mode and was skipped.\n'
+      })
+    }
+
+    if (effectiveTwoPass) {
       // Pass 1
       mainWindow.webContents.send('encoding-log', { jobId, log: 'Starting Pass 1/2...\n' })
-      
+
       // For 2-pass encoding, we need a temp directory for pass stats
       // Use the same strategy as logging, but always create it for 2-pass
       let pass1StatsDir: string
@@ -293,24 +296,14 @@ export async function startEncoding(
       } else {
         pass1StatsDir = dirname(outputPath)
       }
-      
-      const passLogPrefix = join(pass1StatsDir, `ffmpeg2pass-${pathHash(filename)}`)
 
-      // For Pass 1:
-      // - Include video settings (codec, bitrate/crf, preset)
-      // - Disable audio (-an) and subtitles (-sn) to speed it up
-      // - Force output to NULL (we only care about the stats log)
-      const pass1Args = [
-        ...baseArgs,
-        ...videoArgs,
-        '-an',
-        '-sn',
-        ...commonArgs,
-        '-pass', '1',
-        '-passlogfile', passLogPrefix,
-        '-f', 'null',
+      const passLogPrefix = join(pass1StatsDir, `ffmpeg2pass-${pathHash(filename)}`)
+      const { pass1Args, pass2Args } = buildTwoPassFfmpegArgs(
+        effectiveOptions,
+        resolvedOutputPath,
+        passLogPrefix,
         process.platform === 'win32' ? 'NUL' : '/dev/null'
-      ]
+      )
 
       await runFfmpegCommand(executable, pass1Args, mainWindow, job, (p) => {
         const total = p / 2
@@ -320,17 +313,6 @@ export async function startEncoding(
 
       // Pass 2
       mainWindow.webContents.send('encoding-log', { jobId, log: 'Starting Pass 2/2...\n' })
-      const pass2Args = [
-        ...baseArgs,
-        ...videoArgs,
-        ...audioArgs,
-        ...subtitleArgs,
-        ...commonArgs,
-        ...mapArgs,
-        '-pass', '2',
-        '-passlogfile', passLogPrefix,
-        resolvedOutputPath
-      ]
 
       await runFfmpegCommand(executable, pass2Args, mainWindow, job, (p) => {
         const total = 50 + p / 2
@@ -341,15 +323,7 @@ export async function startEncoding(
       // Cleanup log file? ffmpeg usually handles it or leaves it.
     } else {
       // Single Pass
-      const args = [
-        ...baseArgs,
-        ...videoArgs,
-        ...audioArgs,
-        ...subtitleArgs,
-        ...commonArgs,
-        ...mapArgs,
-        resolvedOutputPath
-      ]
+      const args = buildSinglePassFfmpegArgs(effectiveOptions, resolvedOutputPath)
 
       await runFfmpegCommand(executable, args, mainWindow, job, (p) => {
         mainWindow.webContents.send('encoding-progress', { jobId, progress: p })
@@ -358,20 +332,18 @@ export async function startEncoding(
     }
 
     // Success
-    job.logStream?.end()
-    job.logStream = null
     job.process = null
-    releasePowerSaveBlocker()
-    jobs.delete(jobId)
+    finalizeJob(job)
     mainWindow.webContents.send('encoding-complete', { jobId, outputPath: resolvedOutputPath })
     mainWindow.setProgressBar(-1)
   } catch (error) {
-    job.logStream?.end()
-    job.logStream = null
     job.process = null
-    releasePowerSaveBlocker()
-    jobs.delete(jobId)
-    const msg = error instanceof Error ? error.message : 'Unknown error'
+    finalizeJob(job)
+    const msg = job.canceled
+      ? 'Encoding canceled'
+      : error instanceof Error
+        ? error.message
+        : 'Unknown error'
     mainWindow.webContents.send('encoding-error', { jobId, error: msg })
     mainWindow.setProgressBar(1, { mode: 'error' })
   }
