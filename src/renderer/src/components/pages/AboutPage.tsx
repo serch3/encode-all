@@ -1,5 +1,5 @@
 import { Button, Card, CardBody, Chip, Divider } from '@heroui/react'
-import { Github, Sparkles, Shield, Cpu, Monitor, Wand2, User } from 'lucide-react'
+import { Github, Sparkles, Shield, Cpu, Wand2, User } from 'lucide-react'
 
 export default function AboutPage(): React.JSX.Element {
   const repoUrl = 'https://github.com/serch3/encode-all'
@@ -21,7 +21,8 @@ export default function AboutPage(): React.JSX.Element {
           <h2 className="text-2xl font-semibold">About Encode All</h2>
         </div>
         <p className="text-default-500 max-w-3xl">
-          Encode All is a cross-platform desktop application that provides a sleek, modern interface for batch video encoding using FFmpeg.
+          Encode All is a cross-platform desktop application that provides a sleek, modern interface
+          for batch video encoding using FFmpeg.
         </p>
         <div className="flex flex-wrap gap-2">
           <Chip variant="flat" startContent={<Cpu className="w-4 h-4" />}>
@@ -56,7 +57,8 @@ export default function AboutPage(): React.JSX.Element {
               <h3 className="text-lg font-semibold">Creator</h3>
             </div>
             <p className="text-default-500">
-              Built and maintained by <span className="font-medium text-foreground">Sergio Mandujano</span>.
+              Built and maintained by{' '}
+              <span className="font-medium text-foreground">Sergio Mandujano</span>.
             </p>
           </CardBody>
         </Card>
@@ -82,7 +84,6 @@ export default function AboutPage(): React.JSX.Element {
           </CardBody>
         </Card>
       </div>
-
     </div>
   )
 }

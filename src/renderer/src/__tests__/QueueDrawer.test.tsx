@@ -33,12 +33,7 @@ const baseJobs = [
 describe('QueueDrawer', () => {
   test('renders queue stats and file cards', () => {
     renderWithProviders(
-      <QueueDrawer
-        isOpen
-        onClose={jest.fn()}
-        jobs={baseJobs}
-        selectedJobIds={[baseJobs[0].id]}
-      />
+      <QueueDrawer isOpen onClose={jest.fn()} jobs={baseJobs} selectedJobIds={[baseJobs[0].id]} />
     )
 
     expect(screen.getByText(/Video Queue/i)).toBeInTheDocument()

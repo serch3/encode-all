@@ -25,7 +25,7 @@ export default function Layout({
     <div className="h-screen w-screen overflow-hidden flex flex-col">
       {isEncoding && overallProgress !== undefined && (
         <div className="w-full h-1 bg-default-200 shrink-0">
-          <div 
+          <div
             className="h-full bg-gradient-to-r from-primary-500 to-secondary-500 transition-all duration-300"
             style={{ width: `${overallProgress}%` }}
           />

@@ -1,4 +1,3 @@
-import { Card, CardBody, Progress } from '@heroui/react'
 import EncodingProgressPage from './EncodingProgressPage'
 import type React from 'react'
 import type { QueuedJob } from '../../types'

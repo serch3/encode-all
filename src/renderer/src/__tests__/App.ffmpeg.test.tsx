@@ -5,7 +5,8 @@ jest.mock('../components/encoding', () => ({
   __esModule: true,
   QueueDrawer: () => null,
   ProfileManager: () => null,
-  EncodingSettings: () => <div data-testid="encoding-settings" />
+  EncodingSettings: () => <div data-testid="encoding-settings" />,
+  FloatingProgress: () => null
 }))
 
 jest.mock('../components/pages', () => ({
