@@ -10,7 +10,7 @@ import {
   RadioGroup,
   Radio
 } from '@heroui/react'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import {
   boxIcon as BoxIcon,
   videoIcon as VideoIcon,
@@ -94,6 +94,64 @@ export default function EncodingSettings({
   hasNvidiaGpu,
   isNvenc
 }: EncodingSettingsProps): React.JSX.Element {
+  const allVideoCodecs = useMemo(
+    () => [
+      { key: 'libx264', label: 'H.264 (libx264)' },
+      { key: 'libx265', label: 'H.265 (libx265)' },
+      { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
+      ...(hasNvidiaGpu
+        ? [
+            { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
+            { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
+            { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
+          ]
+        : []),
+      { key: 'copy', label: 'Copy' }
+    ],
+    [hasNvidiaGpu]
+  )
+
+  const allAudioCodecs = useMemo(
+    () => [
+      { key: 'aac', label: 'AAC' },
+      { key: 'libopus', label: 'Opus' },
+      { key: 'copy', label: 'Copy' }
+    ],
+    []
+  )
+
+  const availableVideoCodecs = useMemo(
+    () =>
+      allVideoCodecs.filter((codec) => {
+        if (container === 'webm') return ['libvpx-vp9', 'av1_nvenc', 'copy'].includes(codec.key)
+        if (container === 'mp4')
+          return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(
+            codec.key
+          )
+        if (container === 'mov')
+          return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'copy'].includes(codec.key)
+        return true // mkv supports all
+      }),
+    [allVideoCodecs, container]
+  )
+
+  const availableAudioCodecs = useMemo(
+    () =>
+      allAudioCodecs.filter((codec) => {
+        if (container === 'webm') return ['libopus', 'copy'].includes(codec.key)
+        if (container === 'mov') return ['aac', 'copy'].includes(codec.key)
+        return true // mkv, mp4 support all listed
+      }),
+    [allAudioCodecs, container]
+  )
+
+  const selectedVideoCodecKey = availableVideoCodecs.some((codec) => codec.key === videoCodec)
+    ? videoCodec
+    : ''
+  const selectedAudioCodecKey = availableAudioCodecs.some((codec) => codec.key === audioCodec)
+    ? audioCodec
+    : ''
+
   // Enforce container codec compatibility
   useEffect(() => {
     if (container === 'webm') {
@@ -132,42 +190,17 @@ export default function EncodingSettings({
     }
   }, [canEnableTwoPass, setTwoPass, twoPass])
 
-  const ALL_VIDEO_CODECS = [
-    { key: 'libx264', label: 'H.264 (libx264)' },
-    { key: 'libx265', label: 'H.265 (libx265)' },
-    { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
-    ...(hasNvidiaGpu
-      ? [
-          { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
-          { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
-          { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
-        ]
-      : []),
-    { key: 'copy', label: 'Copy' }
-  ]
+  useEffect(() => {
+    if (!selectedVideoCodecKey && availableVideoCodecs.length > 0) {
+      setVideoCodec(availableVideoCodecs[0].key)
+    }
+  }, [availableVideoCodecs, selectedVideoCodecKey, setVideoCodec])
 
-  const ALL_AUDIO_CODECS = [
-    { key: 'aac', label: 'AAC' },
-    { key: 'libopus', label: 'Opus' },
-    { key: 'copy', label: 'Copy' }
-  ]
-
-  const availableVideoCodecs = ALL_VIDEO_CODECS.filter((codec) => {
-    if (container === 'webm') return ['libvpx-vp9', 'av1_nvenc', 'copy'].includes(codec.key)
-    if (container === 'mp4')
-      return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(
-        codec.key
-      )
-    if (container === 'mov')
-      return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'copy'].includes(codec.key)
-    return true // mkv supports all
-  })
-
-  const availableAudioCodecs = ALL_AUDIO_CODECS.filter((codec) => {
-    if (container === 'webm') return ['libopus', 'copy'].includes(codec.key)
-    if (container === 'mov') return ['aac', 'copy'].includes(codec.key)
-    return true // mkv, mp4 support all listed
-  })
+  useEffect(() => {
+    if (!selectedAudioCodecKey && availableAudioCodecs.length > 0) {
+      setAudioCodec(availableAudioCodecs[0].key)
+    }
+  }, [availableAudioCodecs, selectedAudioCodecKey, setAudioCodec])
 
   return (
     <Card>
@@ -209,7 +242,7 @@ export default function EncodingSettings({
               <Select
                 label="Video Codec"
                 startContent={<VideoIcon className="w-5 h-5 text-default-400" />}
-                selectedKeys={[videoCodec]}
+                selectedKeys={selectedVideoCodecKey ? [selectedVideoCodecKey] : []}
                 onSelectionChange={(keys) => setVideoCodec(Array.from(keys)[0] as string)}
                 isDisabled={isEncoding}
               >
@@ -306,7 +339,7 @@ export default function EncodingSettings({
               <Select
                 label="Audio Codec"
                 startContent={<MusicIcon className="w-5 h-5 text-default-400" />}
-                selectedKeys={[audioCodec]}
+                selectedKeys={selectedAudioCodecKey ? [selectedAudioCodecKey] : []}
                 onSelectionChange={(keys) => setAudioCodec(Array.from(keys)[0] as string)}
                 isDisabled={isEncoding}
               >

@@ -1,5 +1,4 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import {
   EncodingOptions,
   EncodingProgressPayload,
@@ -9,24 +8,49 @@ import {
   MediaInfo
 } from './api.types'
 
+type VideoFile = {
+  name: string
+  path: string
+  size: number
+  modified: number
+}
+
+type FfmpegStatus = {
+  isInstalled: boolean
+  version?: string
+  path?: string
+  error?: string
+}
+
+const electronAPI = {
+  ipcRenderer: {
+    invoke: (channel: string, ...args: unknown[]): Promise<unknown> =>
+      ipcRenderer.invoke(channel, ...args)
+  },
+  process: {
+    platform: process.platform,
+    versions: process.versions,
+    env: { ...process.env }
+  }
+}
+
+const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
+  ipcRenderer.invoke(channel, ...args) as Promise<T>
+
 // Custom APIs for renderer
-// Note: Use electronAPI directly instead of window.electron here because
-// window.electron hasn't been attached/exposed yet at definition time.
 const api = {
-  selectFolder: () => electronAPI.ipcRenderer.invoke('select-folder'),
-  readVideoFiles: (folderPath: string) =>
-    electronAPI.ipcRenderer.invoke('read-video-files', folderPath),
+  selectFolder: () => invoke<string | null>('select-folder'),
+  readVideoFiles: (folderPath: string) => invoke<VideoFile[]>('read-video-files', folderPath),
   // FFmpeg-related APIs
-  checkFfmpeg: (ffmpegPath?: string) => electronAPI.ipcRenderer.invoke('check-ffmpeg', ffmpegPath),
-  checkNvidiaSupport: (ffmpegPath?: string) =>
-    electronAPI.ipcRenderer.invoke('check-nvidia-support', ffmpegPath),
-  selectFfmpegPath: () => electronAPI.ipcRenderer.invoke('select-ffmpeg-path'),
-  openExternal: (url: string) => electronAPI.ipcRenderer.invoke('open-external', url),
+  checkFfmpeg: (ffmpegPath?: string) => invoke<FfmpegStatus>('check-ffmpeg', ffmpegPath),
+  checkNvidiaSupport: (ffmpegPath?: string) => invoke<boolean>('check-nvidia-support', ffmpegPath),
+  selectFfmpegPath: () => invoke<string | null>('select-ffmpeg-path'),
+  openExternal: (url: string) => invoke<void>('open-external', url),
 
   // Encoding APIs
   startEncoding: (options: EncodingOptions & { jobId?: string }) =>
-    electronAPI.ipcRenderer.invoke('start-encoding', options),
-  cancelEncoding: (jobId?: string) => electronAPI.ipcRenderer.invoke('cancel-encoding', jobId),
+    invoke<void>('start-encoding', options),
+  cancelEncoding: (jobId?: string) => invoke<void>('cancel-encoding', jobId),
   onEncodingProgress: (callback: (payload: EncodingProgressPayload) => void): (() => void) => {
     const subscription = (_event: IpcRendererEvent, payload: EncodingProgressPayload): void =>
       callback(payload)
@@ -51,15 +75,15 @@ const api = {
     ipcRenderer.on('encoding-error', subscription)
     return () => ipcRenderer.removeListener('encoding-error', subscription)
   },
-  pathJoin: (...paths: string[]) => electronAPI.ipcRenderer.invoke('path-join', paths),
+  pathJoin: (...paths: string[]) => invoke<string>('path-join', paths),
   saveTextFile: async (content: string, defaultName?: string) => {
-    return electronAPI.ipcRenderer.invoke('save-text-file', content, defaultName)
+    return invoke<boolean>('save-text-file', content, defaultName)
   },
   readTextFile: async () => {
-    return electronAPI.ipcRenderer.invoke('read-text-file')
+    return invoke<string | null>('read-text-file')
   },
   probeFile: async (filePath: string, ffmpegPath?: string): Promise<MediaInfo> => {
-    return electronAPI.ipcRenderer.invoke('probe-file', filePath, ffmpegPath)
+    return invoke<MediaInfo>('probe-file', filePath, ffmpegPath)
   }
 }
 

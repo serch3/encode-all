@@ -1,9 +1,19 @@
-import { ElectronAPI } from '@electron-toolkit/preload'
 import type { CustomAPI } from './api.types'
+
+export interface RendererElectronAPI {
+  ipcRenderer: {
+    invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
+  }
+  process: {
+    platform: string
+    versions: Record<string, string | undefined>
+    env: Record<string, string | undefined>
+  }
+}
 
 declare global {
   interface Window {
-    electron: ElectronAPI
+    electron: RendererElectronAPI
     api: CustomAPI
   }
 }
