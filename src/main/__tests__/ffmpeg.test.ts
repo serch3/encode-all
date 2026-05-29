@@ -185,6 +185,7 @@ describe('startEncoding', () => {
     expect(spawnMock).toHaveBeenCalledTimes(2)
 
     const firstArgs = spawnMock.mock.calls[0][1] as string[]
+    const nullOutputPath = process.platform === 'win32' ? 'NUL' : '/dev/null'
     expect(firstArgs).toEqual(
       expect.arrayContaining([
         '-c:v',
@@ -199,7 +200,7 @@ describe('startEncoding', () => {
         '1',
         '-f',
         'null',
-        'NUL'
+        nullOutputPath
       ])
     )
 

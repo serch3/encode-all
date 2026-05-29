@@ -73,7 +73,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Publish draft release
+    name: Publish prerelease
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
@@ -83,10 +83,10 @@ jobs:
         with:
           path: release-assets
 
-      - name: Create draft GitHub release
+      - name: Create GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           mapfile -t files < <(find release-assets -type f | sort)
-          gh release create "$TAG_NAME" "${files[@]}" --draft --generate-notes --title "$TAG_NAME"
+          gh release create "$TAG_NAME" "${files[@]}" --prerelease --generate-notes --title "$TAG_NAME"
