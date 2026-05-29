@@ -12,7 +12,7 @@ import {
   Divider
 } from '@heroui/react'
 import { useState, useEffect } from 'react'
-import { Download, CheckCircle, AlertCircle, ExternalLink, Folder } from 'lucide-react'
+import { CheckCircle, AlertCircle, ExternalLink, Folder } from 'lucide-react'
 import type { FfmpegStatus } from '../../types'
 
 interface FfmpegSetupProps {
@@ -168,22 +168,6 @@ export default function FfmpegSetup({
                   Browse to an existing FFmpeg installation on your system
                 </p>
               </div>
-            </CardBody>
-          </Card>
-
-          {/* Auto Download (todo: implement this) */}
-          <Card className="opacity-60">
-            <CardBody className="flex flex-row items-center gap-3 py-3">
-              <Download className="w-5 h-5 text-default-400" />
-              <div className="flex-1">
-                <p className="text-sm font-medium text-default-400">Automatic Download</p>
-                <p className="text-xs text-default-400">
-                  Download and install FFmpeg automatically (coming soon)
-                </p>
-              </div>
-              <Chip size="sm" variant="flat" color="default">
-                Coming Soon
-              </Chip>
             </CardBody>
           </Card>
         </div>

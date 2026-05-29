@@ -38,7 +38,7 @@ export interface PatternTokens {
 }
 
 /**
- * Encoding job status (todo: implement this)
+ * Legacy encoding job shape kept for older queue-related imports.
  */
 export interface EncodingJob {
   id: string

@@ -5,13 +5,13 @@
   
   **A Modern FFmpeg GUI for Bulk Video Encoding**
   
-  [![Electron](https://img.shields.io/badge/Electron-37.2.3-47848F?style=flat&logo=electron&logoColor=white)](https://www.electronjs.org/)
+  [![Electron](https://img.shields.io/badge/Electron-42.3.0-47848F?style=flat&logo=electron&logoColor=white)](https://www.electronjs.org/)
   [![React](https://img.shields.io/badge/React-19.1.0-61DAFB?style=flat&logo=react&logoColor=white)](https://reactjs.org/)
   [![TypeScript](https://img.shields.io/badge/TypeScript-5.8.3-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
   [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.1.13-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
   [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](LICENSE)
 
-  [Features](#features) • [Screenshots](#screenshots) • [Installation](#installation) • [Development](#development) • [Tech Stack](#tech-stack)
+  [Features](#features) • [Installation](#installation) • [Development](#development) • [Release](#release) • [Tech Stack](#tech-stack)
 
 </div>
 
@@ -38,13 +38,15 @@
 ### Technical Features
 - **FFmpeg Auto-Detection** – Automatically tries to locate FFmpeg on the system for seamless operation.
 
-## Screenshots
-
-*Coming soon – Application is under active development*
-
 ## Installation
 
-*Coming soon – Application is under active development*
+Download the latest installer for your operating system from the
+[GitHub Releases](https://github.com/serch3/encode-all/releases) page.
+
+Encode-All requires FFmpeg and FFprobe to encode and inspect media. If they are
+available on your system `PATH`, the app detects them automatically. You can also
+select a custom FFmpeg executable from Settings. FFprobe should live next to the
+selected FFmpeg binary.
 
 ## Development
 
@@ -91,6 +93,25 @@ npm run build:mac
 # Build for Linux
 npm run build:linux
 ```
+
+## Release
+
+Release builds are created by the GitHub Actions workflow in
+`.github/workflows/release.yml`.
+
+```bash
+# Create and push a version tag
+git tag v0.7.0
+git push origin v0.7.0
+```
+
+The workflow builds Windows, macOS, and Linux artifacts, uploads them to a draft
+GitHub release, and generates release notes. Review the draft release before
+publishing it publicly.
+
+Windows and macOS artifacts are unsigned unless signing credentials are provided
+to Electron Builder through repository secrets. Unsigned builds are useful for
+testing, but public releases should be signed before publishing.
 
 ## Tech Stack
 
