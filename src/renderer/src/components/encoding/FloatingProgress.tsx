@@ -78,10 +78,10 @@ export default function FloatingProgress({
                 )}
               </div>
               <div
-                className={`flex items-center justify-between gap-2 mt-1 ${encodingError ? 'cursor-pointer' : ''}`}
+                className={`flex items-center justify-between gap-2 mt-1 min-w-0 ${encodingError ? 'cursor-pointer' : ''}`}
                 onClick={encodingError ? onPress : undefined}
               >
-                <span className="text-sm truncate flex-1 font-medium hover:underline flex items-center">
+                <span className="text-sm truncate flex-1 font-medium hover:underline min-w-0 block">
                   {encodingError ? 'Click to view logs' : currentEncodingFile || 'Initializing...'}
                 </span>
                 {!encodingError && etaLabel && (
