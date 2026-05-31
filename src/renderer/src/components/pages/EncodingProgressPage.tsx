@@ -25,7 +25,7 @@ interface EncodingProgressPageProps {
   onDismiss?: () => void
 }
 
-const parseFfmpegStats = (
+export const parseFfmpegStats = (
   logs: string[]
 ): {
   fps: string
@@ -34,18 +34,19 @@ const parseFfmpegStats = (
   speed: string
   size: string
 } => {
-  for (let i = logs.length - 1; i >= 0; i--) {
-    const log = logs[i]
-    if (log.includes('frame=') && log.includes('fps=')) {
-      const fps = log.match(/fps=\s*([\d.]+)/)?.[1] || '--'
-      const time = log.match(/time=\s*([\d:.]+)/)?.[1] || '--:--:--'
-      const bitrate = log.match(/bitrate=\s*([\d.]+kbits\/s)/)?.[1] || '--'
-      const speed = log.match(/speed=\s*([\d.]+x)/)?.[1] || '--'
-      const size = log.match(/size=\s*(\d+kB)/)?.[1] || '--'
-      return { fps, time, bitrate, speed, size }
-    }
+  const statusLine = [...logs].reverse().find((log) => log.includes('frame=') || log.includes('fps='))
+
+  if (!statusLine) {
+    return { fps: '--', time: '--:--:--', bitrate: '--', speed: '--', size: '--' }
   }
-  return { fps: '--', time: '--:--:--', bitrate: '--', speed: '--', size: '--' }
+
+  const fps = statusLine.match(/fps=\s*([\d.]+)/)?.[1] || '--'
+  const time = statusLine.match(/time=\s*([\d:.]+)/)?.[1] || '--:--:--'
+  const bitrate = statusLine.match(/bitrate=\s*([\d.]+kbits\/s)/)?.[1] || '--'
+  const speed = statusLine.match(/speed=\s*([\d.]+x)/)?.[1] || '--'
+  const size = statusLine.match(/size=\s*([^\s]+\s?[kMGT]?i?B)/)?.[1] || '--'
+
+  return { fps, time, bitrate, speed, size }
 }
 
 const StatCard = ({
