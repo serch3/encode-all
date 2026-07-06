@@ -246,6 +246,146 @@ describe('useEncodingSession', () => {
     expect(result.current.session.encodingLogs.join('\n')).toContain('Queue stopped due to error.')
   })
 
+  test('records encoding summary with the local queue start and end timestamps', async () => {
+    let completeListener: ((payload: { jobId: string; outputPath?: string }) => void) | undefined
+    let now = 1000
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now)
+
+    try {
+      mockWindowApi((api) => {
+        api.onEncodingComplete.mockImplementation((cb) => {
+          completeListener = cb
+          return () => {}
+        })
+        api.startEncoding.mockImplementation(async (options) => {
+          now = 4500
+          completeListener?.({ jobId: options.jobId as string, outputPath: '/out/summary.mkv' })
+        })
+      })
+
+      const { result } = renderHook(() => {
+        const [jobs, setJobs] = useState<QueuedJob[]>([makeJob('job-summary')])
+        const [selectedJobIds, setSelectedJobIds] = useState<string[]>(['job-summary'])
+        const session = useEncodingSession({
+          queuedJobs: jobs,
+          setQueuedJobs: setJobs,
+          selectedJobIds,
+          setSelectedJobIds,
+          maxConcurrency: 1,
+          ffmpegPath: '/ffmpeg',
+          config: baseConfig
+        })
+        return { jobs, session }
+      })
+
+      act(() => {
+        result.current.session.handleStartEncoding()
+      })
+
+      await waitFor(() => {
+        expect(result.current.session.encodingSummary).toEqual(
+          expect.objectContaining({
+            successful: 1,
+            failed: 0,
+            canceled: 0,
+            startTime: 1000,
+            endTime: 4500
+          })
+        )
+      })
+
+      expect(result.current.jobs).toHaveLength(0)
+      expect(result.current.session.encodingSummary?.jobs[0].status).toBe('complete')
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  test('waits for in-flight concurrent jobs before summarizing after a failure', async () => {
+    const completeListeners: Array<(payload: { jobId: string; outputPath?: string }) => void> = []
+    const errorListeners: Array<(payload: { jobId: string; error: string }) => void> = []
+    let releaseSlowJob: (() => void) | undefined
+
+    mockWindowApi((api) => {
+      api.onEncodingComplete.mockImplementation((cb) => {
+        completeListeners.push(cb)
+        return () => {
+          const index = completeListeners.indexOf(cb)
+          if (index >= 0) completeListeners.splice(index, 1)
+        }
+      })
+      api.onEncodingError.mockImplementation((cb) => {
+        errorListeners.push(cb)
+        return () => {
+          const index = errorListeners.indexOf(cb)
+          if (index >= 0) errorListeners.splice(index, 1)
+        }
+      })
+      api.startEncoding.mockImplementation(async (options) => {
+        if (options.jobId === 'job-fail') {
+          void Promise.resolve().then(() => {
+            errorListeners.forEach((listener) =>
+              listener({ jobId: 'job-fail', error: 'first job failed' })
+            )
+          })
+          return
+        }
+
+        releaseSlowJob = () => {
+          completeListeners.forEach((listener) =>
+            listener({ jobId: 'job-slow', outputPath: '/out/job-slow.mkv' })
+          )
+        }
+      })
+    })
+
+    const { result } = renderHook(() => {
+      const [jobs, setJobs] = useState<QueuedJob[]>([makeJob('job-slow'), makeJob('job-fail', 0)])
+      const [selectedJobIds, setSelectedJobIds] = useState<string[]>(['job-slow', 'job-fail'])
+      const session = useEncodingSession({
+        queuedJobs: jobs,
+        setQueuedJobs: setJobs,
+        selectedJobIds,
+        setSelectedJobIds,
+        maxConcurrency: 2,
+        ffmpegPath: '/ffmpeg',
+        config: baseConfig
+      })
+      return { jobs, session }
+    })
+
+    act(() => {
+      result.current.session.handleStartEncoding()
+    })
+
+    await waitFor(() => {
+      expect(window.api.startEncoding).toHaveBeenCalledTimes(2)
+      expect(releaseSlowJob).toBeDefined()
+    })
+
+    expect(result.current.session.encodingSummary).toBeNull()
+
+    act(() => {
+      releaseSlowJob?.()
+    })
+
+    await waitFor(() => {
+      expect(result.current.session.encodingSummary).toEqual(
+        expect.objectContaining({
+          successful: 1,
+          failed: 1,
+          canceled: 0
+        })
+      )
+    })
+
+    expect(result.current.jobs.map((job) => [job.id, job.status])).toEqual([
+      ['job-slow', 'complete'],
+      ['job-fail', 'error']
+    ])
+    expect(result.current.session.encodingLogs.join('\n')).toContain('Queue stopped due to error.')
+  })
+
   test('cancel and skip controls call cancel api and update session logs', async () => {
     mockWindowApi()
 
