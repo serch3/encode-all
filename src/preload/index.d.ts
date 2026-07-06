@@ -7,7 +7,6 @@ export interface RendererElectronAPI {
   process: {
     platform: string
     versions: Record<string, string | undefined>
-    env: Record<string, string | undefined>
   }
 }
 

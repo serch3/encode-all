@@ -29,8 +29,7 @@ const electronAPI = {
   },
   process: {
     platform: process.platform,
-    versions: process.versions,
-    env: { ...process.env }
+    versions: process.versions
   }
 }
 

@@ -241,33 +241,44 @@ app.whenReady().then(() => {
       modified: number
     }>
   > {
-    let entries: Dirent[]
-    try {
-      entries = await readdir(folderPath, { withFileTypes: true })
-    } catch (error) {
-      console.warn(
-        `Skipping unreadable folder ${folderPath}:`,
-        error instanceof Error ? error.message : error
-      )
-      return []
-    }
+    const SCAN_CONCURRENCY = 8
+    const pendingFolders = [folderPath]
+    const videoFiles: Array<{
+      name: string
+      path: string
+      size: number
+      modified: number
+    }> = []
+    let activeScans = 0
 
-    const nestedFiles = await Promise.all(
-      entries.map(async (entry) => {
-        const fullPath = join(folderPath, entry.name)
+    const scanFolder = async (currentFolder: string): Promise<void> => {
+      let entries: Dirent[]
+      try {
+        entries = await readdir(currentFolder, { withFileTypes: true })
+      } catch (error) {
+        console.warn(
+          `Skipping unreadable folder ${currentFolder}:`,
+          error instanceof Error ? error.message : error
+        )
+        return
+      }
+
+      for (const entry of entries) {
+        const fullPath = join(currentFolder, entry.name)
 
         if (entry.isDirectory()) {
-          return readVideoFilesRecursive(fullPath)
+          pendingFolders.push(fullPath)
+          continue
         }
 
         if (!entry.isFile()) {
-          return []
+          continue
         }
 
         const dotIndex = entry.name.lastIndexOf('.')
         const ext = dotIndex >= 0 ? entry.name.substring(dotIndex).toLowerCase() : ''
         if (!VIDEO_EXTENSIONS.has(ext)) {
-          return []
+          continue
         }
 
         let stats: Stats
@@ -278,21 +289,44 @@ app.whenReady().then(() => {
             `Skipping unreadable file ${fullPath}:`,
             error instanceof Error ? error.message : error
           )
-          return []
+          continue
         }
 
-        return [
-          {
-            name: entry.name,
-            path: fullPath,
-            size: stats.size,
-            modified: stats.mtime.getTime()
-          }
-        ]
-      })
-    )
+        videoFiles.push({
+          name: entry.name,
+          path: fullPath,
+          size: stats.size,
+          modified: stats.mtime.getTime()
+        })
+      }
+    }
 
-    return nestedFiles.flat()
+    await new Promise<void>((resolve) => {
+      const schedule = (): void => {
+        while (activeScans < SCAN_CONCURRENCY && pendingFolders.length > 0) {
+          const currentFolder = pendingFolders.shift()
+          if (!currentFolder) continue
+
+          activeScans += 1
+          void scanFolder(currentFolder).finally(() => {
+            activeScans -= 1
+            if (pendingFolders.length === 0 && activeScans === 0) {
+              resolve()
+              return
+            }
+            schedule()
+          })
+        }
+
+        if (pendingFolders.length === 0 && activeScans === 0) {
+          resolve()
+        }
+      }
+
+      schedule()
+    })
+
+    return videoFiles
   }
 
   // FFmpeg-related IPC handlers
