@@ -1,5 +1,6 @@
 import Sidebar from './Sidebar'
 import type React from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 type LayoutProps = {
   title?: string
@@ -40,7 +41,20 @@ export default function Layout({
             queueStats={queueStats}
             isEncoding={isEncoding}
           />
-          <main className="flex-1 overflow-auto p-4 bg-background/40/0 relative">{children}</main>
+          <main className="flex-1 overflow-hidden bg-background/40 relative">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={active}
+                initial={{ opacity: 0, y: 10, filter: 'blur(4px)' }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, y: -10, filter: 'blur(4px)' }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 p-4 overflow-auto"
+              >
+                {children}
+              </motion.div>
+            </AnimatePresence>
+          </main>
         </div>
       </div>
     </div>

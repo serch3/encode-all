@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type Dispatch, type SetStateAction } from 'react'
-import type { QueuedJob, EncodingOptions, PatternTokens } from '../types'
+import type { QueuedJob, EncodingOptions, PatternTokens, EncodingSummary } from '../types'
 import { buildFilenameFromPattern } from '../utils/pattern'
 import type { EncodingConfig } from './useEncodingConfig'
 
@@ -35,6 +35,7 @@ export function useEncodingSession({
   const [queueStartTime, setQueueStartTime] = useState<number | null>(null)
   const [totalQueueSize, setTotalQueueSize] = useState<number>(0)
   const [eta, setEta] = useState<string>('--')
+  const [encodingSummary, setEncodingSummary] = useState<EncodingSummary | null>(null)
 
   const isEncodingRef = useRef(false)
   const shouldSkipRef = useRef(false)
@@ -156,6 +157,7 @@ export function useEncodingSession({
     setIsEncoding(true)
     setQueueStartTime(Date.now())
     setEncodingError(null)
+    setEncodingSummary(null)
     setEncodingLogs(['Starting encoding process...'])
     setTotalQueueSize(jobsToRun.length)
 
@@ -174,6 +176,7 @@ export function useEncodingSession({
 
     const queue = [...jobsToRun]
     const completedJobIds = new Set<string>()
+    const finalJobStates = new Map<string, QueuedJob>()
 
     const runJobOnce = async (job: QueuedJob): Promise<void> => {
       activeJobIdsRef.current.add(job.id)
@@ -311,22 +314,21 @@ export function useEncodingSession({
         try {
           await runJobOnce(job)
           completedJobIds.add(job.id)
-          setQueuedJobs((prev) =>
-            prev.map((item) =>
-              item.id === job.id ? { ...item, status: 'complete', progress: 100 } : item
-            )
-          )
+          const completedJob = { ...job, status: 'complete' as const, progress: 100 }
+          finalJobStates.set(job.id, completedJob)
+          setQueuedJobs((prev) => prev.map((item) => (item.id === job.id ? completedJob : item)))
           return
         } catch (error) {
-          if (shouldSkipRef.current) {
+          if (shouldSkipRef.current || !isEncodingRef.current) {
             shouldSkipRef.current = false
-            setQueuedJobs((prev) =>
-              prev.map((item) =>
-                item.id === job.id
-                  ? { ...item, status: 'canceled', progress: 0, error: undefined }
-                  : item
-              )
-            )
+            const canceledJob = {
+              ...job,
+              status: 'canceled' as const,
+              progress: 0,
+              error: undefined
+            }
+            finalJobStates.set(job.id, canceledJob)
+            setQueuedJobs((prev) => prev.map((item) => (item.id === job.id ? canceledJob : item)))
             return
           }
           const msg = error instanceof Error ? error.message : String(error)
@@ -349,7 +351,15 @@ export function useEncodingSession({
             ...prev,
             `Error encoding ${job.file.name}: ${msg}${hasAttemptsLeft ? ' — retrying' : ''}`
           ])
+
           if (!hasAttemptsLeft) {
+            finalJobStates.set(job.id, {
+              ...job,
+              status: 'error' as const,
+              progress: 0,
+              attempts: attempt,
+              error: msg
+            })
             setEncodingError(msg)
             throw error
           }
@@ -373,15 +383,39 @@ export function useEncodingSession({
 
     try {
       await Promise.all(workers)
+    } catch {
+      setEncodingLogs((prev) => [...prev, '\nQueue stopped due to error.'])
+      isEncodingRef.current = false
+    } finally {
+      const endTime = Date.now()
+
+      const summaryJobs = jobsToRun.map((originalJob) => {
+        if (finalJobStates.has(originalJob.id)) {
+          return finalJobStates.get(originalJob.id)!
+        }
+        // If not in finalJobStates, it was either canceled before it ran or skipped
+        return { ...originalJob, status: 'canceled' as const, progress: 0 }
+      })
+
+      const successful = summaryJobs.filter((j) => j.status === 'complete').length
+      const failed = summaryJobs.filter((j) => j.status === 'error').length
+      const canceled = summaryJobs.filter((j) => j.status === 'canceled').length
+
+      setEncodingSummary({
+        jobs: summaryJobs,
+        successful,
+        failed,
+        canceled,
+        startTime: queueStartTime!,
+        endTime,
+        outputDirectory: outputDirectory || 'Original Directory'
+      })
+
       if (isEncodingRef.current && completedJobIds.size === jobsToRun.length) {
         setQueuedJobs((prev) => prev.filter((job) => !completedJobIds.has(job.id)))
         setSelectedJobIds((prev) => prev.filter((id) => !completedJobIds.has(id)))
       }
       setEncodingLogs((prev) => [...prev, '\nAll tasks finished.'])
-    } catch {
-      setEncodingLogs((prev) => [...prev, '\nQueue stopped due to error.'])
-      isEncodingRef.current = false
-    } finally {
       setIsEncoding(false)
       isEncodingRef.current = false
     }
@@ -426,6 +460,8 @@ export function useEncodingSession({
     setEncodingError,
     eta,
     overallProgress,
+    encodingSummary,
+    setEncodingSummary,
     handleStartEncoding,
     handleCancelEncoding,
     handleSkipCurrent

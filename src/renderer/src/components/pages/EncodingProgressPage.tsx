@@ -34,7 +34,9 @@ export const parseFfmpegStats = (
   speed: string
   size: string
 } => {
-  const statusLine = [...logs].reverse().find((log) => log.includes('frame=') || log.includes('fps='))
+  const statusLine = [...logs]
+    .reverse()
+    .find((log) => log.includes('frame=') || log.includes('fps='))
 
   if (!statusLine) {
     return { fps: '--', time: '--:--:--', bitrate: '--', speed: '--', size: '--' }

@@ -36,7 +36,8 @@ import {
   CheckSquare,
   X,
   Search as SearchIcon,
-  Layers
+  Layers,
+  Video
 } from 'lucide-react'
 
 interface QueueDrawerProps {
@@ -384,15 +385,15 @@ export default function QueueDrawer({
 
           <ScrollShadow className="h-full w-full overflow-x-hidden">
             {filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-12 h-12 bg-default-100 rounded-full flex items-center justify-center mb-4">
-                  <span className="text-2xl">🎥</span>
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <div className="w-20 h-20 bg-default-100 rounded-full flex items-center justify-center mb-6 text-default-400">
+                  <Video className="w-10 h-10" />
                 </div>
-                <h3 className="text-lg font-medium text-default-600 mb-2">No matches</h3>
-                <p className="text-sm text-default-500">
+                <h3 className="text-xl font-semibold text-foreground mb-2">Queue is empty</h3>
+                <p className="text-sm text-default-500 max-w-xs mx-auto">
                   {jobs.length === 0
-                    ? 'Select a folder to scan for video files'
-                    : 'Try a different search term'}
+                    ? 'Add some video files to the workspace to start encoding.'
+                    : 'No files match your current search.'}
                 </p>
               </div>
             ) : (

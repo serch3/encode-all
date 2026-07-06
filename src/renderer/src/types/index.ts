@@ -18,6 +18,16 @@ export interface VideoFile {
   modified: number
 }
 
+export interface EncodingSummary {
+  jobs: QueuedJob[]
+  successful: number
+  failed: number
+  canceled: number
+  startTime: number
+  endTime: number
+  outputDirectory: string
+}
+
 /**
  * FFmpeg installation status information
  */

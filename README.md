@@ -11,7 +11,7 @@
   [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.1.13-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
   [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](LICENSE)
 
-  [Features](#features) • [Installation](#installation) • [Development](#development) • [Release](#release) • [Tech Stack](#tech-stack)
+[Features](#features) • [Installation](#installation) • [Development](#development) • [Release](#release) • [Tech Stack](#tech-stack)
 
 </div>
 
@@ -24,18 +24,22 @@
 ## Features
 
 ### Core Functionality
-- **Batch & Queue** – Add folders, run sequential encodes with progress and status monitoring  
+
+- **Batch & Queue** – Add folders, run sequential encodes with progress and status monitoring
 - **Formats & Codecs** – MP4/MKV/AVI/WebM support; H.264, H.265, VP9, AV1
 
 ### User Experience
+
 - **Modern UI & Themes** – Sleek design with light/dark mode
 - **Live Feedback** – FFmpeg command preview and real-time progress
 
 ### Encoding Configuration
+
 - **Codec & Audio Controls** – Video/audio codec, bitrate, channels, thread tuning
 - **Output Management** – Easy custom naming and output directory selection
 
 ### Technical Features
+
 - **FFmpeg Auto-Detection** – Automatically tries to locate FFmpeg on the system for seamless operation.
 
 ## Installation
@@ -116,6 +120,7 @@ testing, but public releases should be signed before publishing.
 ## Tech Stack
 
 ### Frontend
+
 - **[React](https://reactjs.org/)** – UI library
 - **[TypeScript](https://www.typescriptlang.org/)** – Type-safe JavaScript
 - **[Tailwind CSS](https://tailwindcss.com/)** – Utility-first CSS framework
@@ -124,17 +129,20 @@ testing, but public releases should be signed before publishing.
 - **[Lucide React](https://lucide.dev/)** – Icon library
 
 ### Desktop Framework
+
 - **[Electron](https://www.electronjs.org/)** – Cross-platform desktop apps
 - **[Electron Vite](https://electron-vite.org/)** – Fast build tooling
 - **[Electron Builder](https://www.electron.build/)** – Packaging and distribution
 
 ### Development Tools
+
 - **[Vite](https://vitejs.dev/)** – Next-generation frontend tooling
 - **[Jest](https://jestjs.io/)** – Testing framework
 - **[ESLint](https://eslint.org/)** – Code linting
 - **[Prettier](https://prettier.io/)** – Code formatting
 
 ### Backend Processing
+
 - **[FFmpeg](https://ffmpeg.org/)** – Multimedia framework for video/audio processing
 
 ## Contributing

@@ -366,6 +366,16 @@ function App(): React.JSX.Element {
             activeJobs={selectedJobs}
             showProgressPage={showProgressPage}
             onDismissProgress={() => setShowProgressPage(false)}
+            encodingSummary={session.encodingSummary}
+            onDismissSummary={() => {
+              session.setEncodingSummary(null)
+              setShowProgressPage(false)
+            }}
+            onReviewFailed={() => {
+              session.setEncodingSummary(null)
+              setShowProgressPage(false)
+              queue.setIsQueueOpen(true)
+            }}
           />
         )}
         {active === 'settings' && (

@@ -1,6 +1,7 @@
 import EncodingProgressPage from './EncodingProgressPage'
+import EncodingSummaryPage from './EncodingSummaryPage'
 import type React from 'react'
-import type { QueuedJob } from '../../types'
+import type { QueuedJob, EncodingSummary } from '../../types'
 
 interface GeneralPageProps {
   encoderContent: React.ReactNode
@@ -16,6 +17,9 @@ interface GeneralPageProps {
   activeJobs?: QueuedJob[]
   showProgressPage?: boolean
   onDismissProgress?: () => void
+  encodingSummary?: EncodingSummary | null
+  onDismissSummary?: () => void
+  onReviewFailed?: () => void
 }
 
 export default function GeneralPage({
@@ -30,12 +34,24 @@ export default function GeneralPage({
   overallProgress,
   activeJobs,
   showProgressPage,
-  onDismissProgress
+  onDismissProgress,
+  encodingSummary,
+  onDismissSummary,
+  onReviewFailed
 }: GeneralPageProps): React.JSX.Element {
   return (
     <div className="flex flex-col h-full relative">
       <div className="flex-1 py-4 flex flex-col min-h-0">
-        {showProgressPage ? (
+        {encodingSummary ? (
+          <EncodingSummaryPage
+            summary={encodingSummary}
+            onDismiss={() => {
+              onDismissSummary?.()
+              if (onDismissProgress) onDismissProgress()
+            }}
+            onReviewFailed={onReviewFailed}
+          />
+        ) : showProgressPage ? (
           <EncodingProgressPage
             progress={overallProgress ?? encodingProgress}
             currentFile={currentEncodingFile}
