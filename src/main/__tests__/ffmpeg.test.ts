@@ -113,6 +113,8 @@ describe('startEncoding', () => {
     expect(executable).toBe('ffmpeg')
 
     expect(args).toEqual([
+      '-hide_banner',
+      '-nostdin',
       '-i',
       options.inputPath,
       '-map_metadata',
@@ -141,6 +143,7 @@ describe('startEncoding', () => {
       '0:a?',
       '-map',
       '0:s?',
+      '-n',
       options.outputPath
     ])
 
@@ -225,6 +228,57 @@ describe('startEncoding', () => {
     })
   })
 
+  test('adds streaming-friendly output flags for mp4 outputs', async () => {
+    const proc = createMockProcess()
+    spawnMock.mockImplementation(() => {
+      process.nextTick(() => proc.emit('close', 0))
+      return proc
+    })
+    createWriteStreamMock.mockReturnValue(createLogStream())
+
+    const mainWindow = createMainWindowMock()
+    const options = {
+      ...createBaseOptions(),
+      container: 'mp4',
+      outputPath: 'C:/videos/output.mp4',
+      videoCodec: 'libx264'
+    } satisfies EncodingOptions
+
+    await startEncoding(options, mainWindow as never)
+
+    const args = spawnMock.mock.calls[0][1] as string[]
+    expect(args).toEqual(
+      expect.arrayContaining(['-n', '-movflags', '+faststart', options.outputPath])
+    )
+  })
+
+  test('uses VP9-specific quality and speed flags instead of x264 presets', async () => {
+    const proc = createMockProcess()
+    spawnMock.mockImplementation(() => {
+      process.nextTick(() => proc.emit('close', 0))
+      return proc
+    })
+    createWriteStreamMock.mockReturnValue(createLogStream())
+
+    const mainWindow = createMainWindowMock()
+    const options = {
+      ...createBaseOptions(),
+      container: 'webm',
+      outputPath: 'C:/videos/output.webm',
+      videoCodec: 'libvpx-vp9',
+      preset: 'slow',
+      rateControlMode: 'crf'
+    } satisfies EncodingOptions
+
+    await startEncoding(options, mainWindow as never)
+
+    const args = spawnMock.mock.calls[0][1] as string[]
+    expect(args).toEqual(
+      expect.arrayContaining(['-b:v', '0', '-crf', '23', '-deadline', 'good', '-cpu-used', '2'])
+    )
+    expect(args).not.toContain('-preset')
+  })
+
   test('maps only supported media stream types when all tracks are selected', async () => {
     const proc = createMockProcess()
     spawnMock.mockImplementation(() => {
@@ -271,7 +325,7 @@ describe('startEncoding', () => {
     expect(spawnMock.mock.calls[0][1]).not.toContain('-pass')
     expect(mainWindow.webContents.send).toHaveBeenCalledWith('encoding-log', {
       jobId: expect.any(String),
-      log: '[warn] Two-pass encoding requires average bitrate mode and was skipped.\n'
+      log: '[warn] Two-pass encoding requires average bitrate mode with a supported software encoder and was skipped.\n'
     })
   })
 

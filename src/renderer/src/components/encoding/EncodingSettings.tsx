@@ -182,7 +182,8 @@ export default function EncodingSettings({
     }
   }, [audioCodec, container, setAudioCodec, setVideoCodec, videoCodec])
 
-  const canEnableTwoPass = rateControlMode === 'bitrate' && videoCodec !== 'copy'
+  const canEnableTwoPass =
+    rateControlMode === 'bitrate' && videoCodec !== 'copy' && !videoCodec.includes('nvenc')
 
   useEffect(() => {
     if (twoPass && !canEnableTwoPass) {
@@ -320,7 +321,7 @@ export default function EncodingSettings({
                 <p className="text-tiny text-default-400 pl-7">
                   {canEnableTwoPass
                     ? 'Encodes twice for better quality/size ratio. Slower.'
-                    : 'Requires average bitrate mode and a video encoder.'}
+                    : 'Requires average bitrate mode and a software video encoder.'}
                 </p>
               </div>
             </div>

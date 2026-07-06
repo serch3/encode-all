@@ -12,7 +12,8 @@ export interface FfmpegArgParts {
 export function canUseTwoPass(
   options: Pick<EncodingOptions, 'twoPass' | 'videoCodec' | 'rateControlMode'>
 ): boolean {
-  return options.twoPass && options.videoCodec !== 'copy' && options.rateControlMode === 'bitrate'
+  const supportsFfmpegPass = ['libx264', 'libx265', 'libvpx-vp9'].includes(options.videoCodec)
+  return options.twoPass && supportsFfmpegPass && options.rateControlMode === 'bitrate'
 }
 
 export function buildFfmpegArgParts(options: EncodingOptions): FfmpegArgParts {
@@ -32,18 +33,20 @@ export function buildFfmpegArgParts(options: EncodingOptions): FfmpegArgParts {
     rateControlMode
   } = options
 
-  const baseArgs = ['-i', inputPath, '-map_metadata', '0']
+  const baseArgs = ['-hide_banner', '-nostdin', '-i', inputPath, '-map_metadata', '0']
 
   const videoArgs = ['-c:v', videoCodec]
   if (videoCodec !== 'copy') {
     if (rateControlMode === 'bitrate') {
       videoArgs.push('-b:v', `${videoBitrate}k`)
+    } else if (videoCodec === 'libvpx-vp9') {
+      videoArgs.push('-b:v', '0', '-crf', crf.toString())
     } else if (videoCodec.includes('nvenc')) {
-      videoArgs.push('-cq', crf.toString())
+      videoArgs.push('-rc', 'vbr', '-cq', crf.toString(), '-b:v', '0')
     } else {
       videoArgs.push('-crf', crf.toString())
     }
-    videoArgs.push('-preset', preset)
+    videoArgs.push(...presetArgsFor(videoCodec, preset))
   }
 
   const audioArgs = ['-c:a', audioCodec]
@@ -95,7 +98,7 @@ export function buildSinglePassFfmpegArgs(options: EncodingOptions, outputPath: 
     ...subtitleArgs,
     ...commonArgs,
     ...mapArgs,
-    outputPath
+    ...finalOutputArgs(options, outputPath)
   ]
 }
 
@@ -138,8 +141,50 @@ export function buildTwoPassFfmpegArgs(
       '2',
       '-passlogfile',
       passLogPrefix,
-      outputPath
+      ...finalOutputArgs(options, outputPath)
     ]
+  }
+}
+
+function finalOutputArgs(options: EncodingOptions, outputPath: string): string[] {
+  const args = ['-n']
+  const container = options.container.toLowerCase()
+  if (container === 'mp4' || container === 'mov' || container === 'm4v') {
+    args.push('-movflags', '+faststart')
+  }
+  args.push(outputPath)
+  return args
+}
+
+function presetArgsFor(videoCodec: string, preset: string): string[] {
+  if (videoCodec === 'libvpx-vp9') {
+    return ['-deadline', 'good', '-cpu-used', vp9CpuUsedFor(preset)]
+  }
+
+  return ['-preset', preset]
+}
+
+function vp9CpuUsedFor(preset: string): string {
+  switch (preset) {
+    case 'ultrafast':
+      return '8'
+    case 'superfast':
+      return '7'
+    case 'veryfast':
+      return '6'
+    case 'faster':
+      return '5'
+    case 'fast':
+      return '4'
+    case 'slow':
+      return '2'
+    case 'slower':
+      return '1'
+    case 'veryslow':
+      return '0'
+    case 'medium':
+    default:
+      return '3'
   }
 }
 

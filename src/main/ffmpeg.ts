@@ -274,7 +274,7 @@ export async function startEncoding(
     if (twoPass && !effectiveTwoPass) {
       mainWindow.webContents.send('encoding-log', {
         jobId,
-        log: '[warn] Two-pass encoding requires average bitrate mode and was skipped.\n'
+        log: '[warn] Two-pass encoding requires average bitrate mode with a supported software encoder and was skipped.\n'
       })
     }
 
