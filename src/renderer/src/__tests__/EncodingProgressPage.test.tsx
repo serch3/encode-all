@@ -1,4 +1,4 @@
-import { parseFfmpegStats } from '../components/pages/EncodingProgressPage'
+import { parseFfmpegStats } from '../utils/ffmpegStats'
 
 describe('parseFfmpegStats', () => {
   test('parses current size from a typical ffmpeg status line', () => {

@@ -14,4 +14,7 @@ export const motion: Record<string, React.FC<MotionProps>> = new Proxy(
   }
 ) as Record<string, React.FC<MotionProps>>
 
-export default { motion }
+export const AnimatePresence: React.FC<{ children?: React.ReactNode }> = ({ children }) =>
+  React.createElement(React.Fragment, null, children)
+
+export default { motion, AnimatePresence }
