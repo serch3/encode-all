@@ -1,6 +1,6 @@
 {
   "name": "encode-all",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "A cross-platform desktop app for batch video encoding with FFmpeg.",
   "main": "./out/main/index.js",
   "author": "Sergio Mandujano",
