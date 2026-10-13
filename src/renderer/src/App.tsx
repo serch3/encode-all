@@ -8,6 +8,7 @@ import { DropZone } from './components/shared'
 import Layout from './components/layout'
 import { SettingsPage, GeneralPage, AboutPage } from './components/pages'
 import { FfmpegPreview, FfmpegSetup } from './components/ffmpeg'
+import VideoPreview from './components/ffmpeg/VideoPreview'
 import {
   QueueDrawer,
   ProfileManager,
@@ -37,6 +38,7 @@ function App(): React.JSX.Element {
   const [hasNvidiaGpu, setHasNvidiaGpu] = useState<boolean>(false)
   const [ffmpegPath, setFfmpegPath] = useState<string | undefined>(readSavedFfmpegPath)
   const [showProgressPage, setShowProgressPage] = useState<boolean>(false)
+  const [previewBusy, setPreviewBusy] = useState(false)
   const [fileError, setFileError] = useState<string | null>(null)
 
   const config = useEncodingConfig()
@@ -202,7 +204,7 @@ function App(): React.JSX.Element {
             encoderContent={
               <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
                 <DropZone
-                  isEncoding={session.isEncoding}
+                  isEncoding={session.isEncoding || previewBusy}
                   queueCount={queue.queuedJobs.length}
                   onFilesDropped={queue.enqueueFiles}
                   onBrowseFolder={handleSelectFolder}
@@ -212,7 +214,7 @@ function App(): React.JSX.Element {
                   <CardBody className="flex flex-col gap-4 p-0">
                     <div className="p-4 flex flex-col gap-4">
                       <ProfileManager
-                        isDisabled={session.isEncoding}
+                        isDisabled={session.isEncoding || previewBusy}
                         currentSettings={{
                           container: config.container,
                           videoCodec: config.videoCodec,
@@ -264,7 +266,7 @@ function App(): React.JSX.Element {
                         setTwoPass={config.setTwoPass}
                         subtitleMode={config.subtitleMode}
                         setSubtitleMode={config.setSubtitleMode}
-                        isEncoding={session.isEncoding}
+                        isEncoding={session.isEncoding || previewBusy}
                         hasNvidiaGpu={hasNvidiaGpu}
                         isNvenc={isNvenc}
                       />
@@ -280,13 +282,13 @@ function App(): React.JSX.Element {
                             readOnly
                             value={config.outputDirectory}
                             className="flex-1"
-                            isDisabled={session.isEncoding}
+                            isDisabled={session.isEncoding || previewBusy}
                           />
                           <Button
                             variant="flat"
                             onPress={handleSelectOutputDirectory}
                             className="h-14"
-                            isDisabled={session.isEncoding}
+                            isDisabled={session.isEncoding || previewBusy}
                           >
                             Browse
                           </Button>
@@ -298,7 +300,7 @@ function App(): React.JSX.Element {
                           value={config.renamePattern}
                           onChange={(e) => config.setRenamePattern(e.target.value)}
                           description="Tokens: {name} {codec} {ext}"
-                          isDisabled={session.isEncoding}
+                          isDisabled={session.isEncoding || previewBusy}
                         />
                         <div className="text-xs text-foreground/60">
                           Preview: {getPreviewFilename()}
@@ -322,7 +324,10 @@ function App(): React.JSX.Element {
                         color="primary"
                         className="w-full h-12 text-base font-semibold"
                         isDisabled={
-                          !ffmpegChecked || selectedJobs.length === 0 || session.isEncoding
+                          !ffmpegChecked ||
+                          selectedJobs.length === 0 ||
+                          session.isEncoding ||
+                          previewBusy
                         }
                         onPress={() => {
                           setShowProgressPage(true)
@@ -334,6 +339,14 @@ function App(): React.JSX.Element {
                     </div>
                   </CardBody>
                 </Card>
+                <VideoPreview
+                  jobs={selectedJobs}
+                  config={config}
+                  ffmpegPath={ffmpegPath}
+                  ready={ffmpegChecked}
+                  isEncoding={session.isEncoding}
+                  onBusyChange={setPreviewBusy}
+                />
                 {showFfmpegPreview && (
                   <div className="lg:col-span-3">
                     <FfmpegPreview
@@ -414,7 +427,7 @@ function App(): React.JSX.Element {
         onClearSelection={queue.handleClearSelection}
         onRemoveJobs={queue.handleRemoveJobs}
         onEncode={() => {
-          if (!ffmpegChecked) {
+          if (!ffmpegChecked || previewBusy) {
             setShowFfmpegSetup(!ffmpegChecked)
             return
           }
@@ -423,7 +436,8 @@ function App(): React.JSX.Element {
           session.handleStartEncoding()
         }}
         isEncoding={session.isEncoding}
-        canEncode={ffmpegChecked}
+        isLocked={previewBusy}
+        canEncode={ffmpegChecked && !previewBusy}
         onSkipCurrent={session.handleSkipCurrent}
         onSaveQueue={queue.handleSaveQueue}
         onLoadQueue={queue.handleLoadQueue}

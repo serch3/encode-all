@@ -7,7 +7,9 @@ import type {
   EncodingOptions,
   EncodingProgressPayload,
   FfmpegInstaller,
-  FfmpegStatus
+  FfmpegStatus,
+  PreviewOptions,
+  PreviewResult
 } from '../../preload/api.types'
 
 export type WindowApiMock = {
@@ -15,6 +17,10 @@ export type WindowApiMock = {
   getFfmpegInstaller: jest.Mock<Promise<FfmpegInstaller>, []>
   installFfmpeg: jest.Mock<Promise<FfmpegStatus>, []>
   onFfmpegInstallLog: jest.Mock<() => void, [(log: string) => void]>
+  createPreview: jest.Mock<Promise<PreviewResult>, [PreviewOptions]>
+  cancelPreview: jest.Mock<Promise<void>, []>
+  releasePreview: jest.Mock<Promise<void>, [string]>
+  openPreview: jest.Mock<Promise<void>, [string]>
   selectFolder: jest.Mock<Promise<string | null>, []>
   readVideoFiles: jest.Mock<
     Promise<
@@ -70,6 +76,15 @@ const defaultWindowApiMock = (): WindowApiMock => ({
   getFfmpegInstaller: jest.fn().mockResolvedValue({ available: false, manager: null }),
   installFfmpeg: jest.fn().mockResolvedValue({ isInstalled: false }),
   onFfmpegInstallLog: jest.fn().mockReturnValue(() => {}),
+  createPreview: jest.fn().mockResolvedValue({
+    id: 'preview-test',
+    url: 'encode-preview://clip/preview-test',
+    size: 1024,
+    durationSeconds: 30
+  }),
+  cancelPreview: jest.fn().mockResolvedValue(undefined),
+  releasePreview: jest.fn().mockResolvedValue(undefined),
+  openPreview: jest.fn().mockResolvedValue(undefined),
   selectFolder: jest.fn().mockResolvedValue(null),
   readVideoFiles: jest.fn().mockResolvedValue([]),
   checkFfmpeg: jest.fn().mockResolvedValue({ isInstalled: false }),

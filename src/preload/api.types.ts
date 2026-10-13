@@ -29,6 +29,10 @@ export interface CustomAPI {
   getFfmpegInstaller: () => Promise<FfmpegInstaller>
   installFfmpeg: () => Promise<FfmpegStatus>
   onFfmpegInstallLog: (callback: (log: string) => void) => () => void
+  createPreview: (options: PreviewOptions) => Promise<PreviewResult>
+  cancelPreview: () => Promise<void>
+  releasePreview: (id: string) => Promise<void>
+  openPreview: (id: string) => Promise<void>
   selectFolder: () => Promise<string | null>
   readVideoFiles: (folderPath: string) => Promise<
     Array<{
@@ -72,6 +76,19 @@ export interface FfmpegInstaller {
   manager: 'winget' | 'brew' | null
   command?: string
   reason?: string
+}
+
+export interface PreviewOptions {
+  encoding: EncodingOptions
+  startSeconds: number
+  durationSeconds: number
+}
+
+export interface PreviewResult {
+  id: string
+  url: string
+  size: number
+  durationSeconds: number
 }
 
 export interface EncodingOptions {

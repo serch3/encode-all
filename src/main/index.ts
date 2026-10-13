@@ -1,11 +1,11 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, protocol } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { writeFileSync, readFileSync, type Dirent, type Stats } from 'fs'
 import { readdir, stat } from 'fs/promises'
 import icon from '../../resources/icon.png?asset'
 import { startEncoding, cancelEncoding } from './ffmpeg'
-import { EncodingOptions } from '../preload/api.types'
+import { EncodingOptions, PreviewOptions } from '../preload/api.types'
 import {
   checkFfmpegInstallation,
   checkNvidiaSupport,
@@ -14,6 +14,22 @@ import {
   getFfmpegInstaller,
   installFfmpeg
 } from './ffmpegSetup'
+import {
+  createPreview,
+  cancelPreview,
+  releasePreview,
+  openPreview,
+  previewResponse,
+  cleanupPreviews
+} from './preview'
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'encode-preview',
+    privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true }
+  }
+])
+
 const VIDEO_EXTENSIONS = new Set([
   '.mp4',
   '.mkv',
@@ -91,6 +107,7 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     cancelEncoding()
+    void cleanupPreviews()
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -119,12 +136,21 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  protocol.handle('encode-preview', previewResponse)
   ipcMain.handle('get-ffmpeg-installer', getFfmpegInstaller)
   ipcMain.handle('install-ffmpeg', (event) =>
     installFfmpeg((log) => {
       if (!event.sender.isDestroyed()) event.sender.send('ffmpeg-install-log', log)
     })
   )
+  ipcMain.handle('create-preview', (event, options: PreviewOptions) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (!window) throw new Error('Preview window is unavailable')
+    return createPreview(options, window)
+  })
+  ipcMain.handle('cancel-preview', cancelPreview)
+  ipcMain.handle('release-preview', (_, id: string) => releasePreview(id))
+  ipcMain.handle('open-preview', (_, id: string) => openPreview(id))
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.serch3.encode-all')
 
@@ -348,6 +374,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   cancelEncoding()
+  void cleanupPreviews()
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

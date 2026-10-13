@@ -7,7 +7,9 @@ import {
   EncodingErrorPayload,
   MediaInfo,
   CustomAPI,
-  FfmpegInstaller
+  FfmpegInstaller,
+  PreviewOptions,
+  PreviewResult
 } from './api.types'
 
 type VideoFile = {
@@ -44,6 +46,10 @@ const api: CustomAPI = {
     ipcRenderer.on('ffmpeg-install-log', subscription)
     return () => ipcRenderer.removeListener('ffmpeg-install-log', subscription)
   },
+  createPreview: (options: PreviewOptions) => invoke<PreviewResult>('create-preview', options),
+  cancelPreview: () => invoke<void>('cancel-preview'),
+  releasePreview: (id: string) => invoke<void>('release-preview', id),
+  openPreview: (id: string) => invoke<void>('open-preview', id),
   selectFolder: () => invoke<string | null>('select-folder'),
   readVideoFiles: (folderPath: string) => invoke<VideoFile[]>('read-video-files', folderPath),
   // FFmpeg-related APIs

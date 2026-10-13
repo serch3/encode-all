@@ -52,6 +52,7 @@ interface QueueDrawerProps {
   onEncode?: () => void
   isEncoding?: boolean
   canEncode?: boolean
+  isLocked?: boolean
   onSkipCurrent?: () => void
   onSaveQueue?: (jobs: QueuedJob[]) => void
   onLoadQueue?: () => void
@@ -81,6 +82,7 @@ export default function QueueDrawer({
   onEncode,
   isEncoding,
   canEncode = true,
+  isLocked = false,
   onSkipCurrent,
   onSaveQueue,
   onLoadQueue,
@@ -305,7 +307,11 @@ export default function QueueDrawer({
               />
 
               <div className="flex gap-3 w-full sm:w-auto justify-end items-center">
-                <ButtonGroup size="sm" variant="flat" isDisabled={jobs.length === 0 || isEncoding}>
+                <ButtonGroup
+                  size="sm"
+                  variant="flat"
+                  isDisabled={jobs.length === 0 || isEncoding || isLocked}
+                >
                   <Button onPress={() => onSelectAll?.()} startContent={<CheckSquare size={14} />}>
                     Select All
                   </Button>
@@ -321,7 +327,7 @@ export default function QueueDrawer({
                   color="danger"
                   variant="flat"
                   onPress={() => onRemoveJobs?.(selectedJobIds)}
-                  isDisabled={selectedJobIds.length === 0 || isEncoding}
+                  isDisabled={selectedJobIds.length === 0 || isEncoding || isLocked}
                   startContent={<Trash2 size={16} />}
                   className="font-medium"
                 >
@@ -354,7 +360,7 @@ export default function QueueDrawer({
                         }
                         className="w-20"
                         classNames={{ input: 'text-right' }}
-                        isDisabled={isEncoding}
+                        isDisabled={isEncoding || isLocked}
                         min={1}
                         max={MAX_QUEUE_CONCURRENCY}
                       />
@@ -374,7 +380,7 @@ export default function QueueDrawer({
                         }
                         className="w-20"
                         classNames={{ input: 'text-right' }}
-                        isDisabled={isEncoding}
+                        isDisabled={isEncoding || isLocked}
                         min={0}
                         max={MAX_QUEUE_RETRIES}
                       />
@@ -404,8 +410,8 @@ export default function QueueDrawer({
                   {filtered.map((job) => (
                     <Card
                       key={job.id}
-                      isPressable={!!onSelectJob && !isEncoding}
-                      onPress={() => !isEncoding && onSelectJob?.(job.id)}
+                      isPressable={!!onSelectJob && !isEncoding && !isLocked}
+                      onPress={() => !isEncoding && !isLocked && onSelectJob?.(job.id)}
                       className={`transition-shadow duration-150 border-0 shadow-sm w-full min-w-0 ${
                         !isEncoding ? 'hover:shadow-md' : ''
                       } ${
@@ -486,7 +492,7 @@ export default function QueueDrawer({
                                 onPress={() => {
                                   onRemoveJobs?.([job.id])
                                 }}
-                                isDisabled={isEncoding}
+                                isDisabled={isEncoding || isLocked}
                               >
                                 <Trash2 size={16} />
                               </Button>
@@ -694,7 +700,7 @@ export default function QueueDrawer({
                   isIconOnly
                   aria-label="Load queue"
                   onPress={onLoadQueue}
-                  isDisabled={isEncoding}
+                  isDisabled={isEncoding || isLocked}
                 >
                   <Upload size={16} />
                 </Button>
