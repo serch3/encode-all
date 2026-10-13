@@ -104,3 +104,20 @@ describe('buildFilenameFromPattern', () => {
     expect(result).toBe('movie_4k_av1_5.1ch_256kbps.webm')
   })
 })
+
+test.each(['CON', 'NUL.mp4', 'aux', 'PRN.mkv', 'COM1', 'LPT9.mp4', 'COM¹.mkv'])(
+  'avoids Windows reserved name %s',
+  (name) => {
+    expect(buildFilenameFromPattern('{name}', { name, codec: 'x264', ext: 'mp4' })).toBe('_' + name)
+  }
+)
+
+test.each(['.', '..', '...'])('avoids empty or relative output name %s', (name) => {
+  expect(buildFilenameFromPattern(name, { name: 'clip', codec: 'x264', ext: 'mp4' })).toBe('video')
+})
+
+test('preserves Unicode letters and removes trailing dots', () => {
+  expect(
+    buildFilenameFromPattern('{name}..', { name: '日本語_été_видео', codec: 'x264', ext: 'mp4' })
+  ).toBe('日本語_été_видео')
+})

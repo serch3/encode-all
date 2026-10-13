@@ -44,5 +44,10 @@ export function buildFilenameFromPattern(pattern: string, tokens: PatternTokens)
     }
     return full // leave unknown token intact
   })
-  return replaced.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const filename =
+    replaced.replace(/[^\p{L}\p{M}\p{N}._-]/gu, '_').replace(/[. ]+$/g, '') || 'video'
+  // Windows reserves these names even when they have a file extension.
+  return /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(filename)
+    ? `_${filename}`
+    : filename
 }
