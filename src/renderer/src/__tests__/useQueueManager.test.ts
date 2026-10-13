@@ -183,3 +183,20 @@ describe('useQueueManager', () => {
     expect(result.current.selectedJobIds).toEqual([])
   })
 })
+
+test('assigns unique job IDs when an imported queue repeats an ID', async () => {
+  mockWindowApi((api) => {
+    api.readTextFile.mockResolvedValue(
+      JSON.stringify([
+        { id: 'repeated', file: { name: 'first.mp4', path: '/first.mp4', size: 1, modified: 1 } },
+        { id: 'repeated', file: { name: 'second.mp4', path: '/second.mp4', size: 1, modified: 1 } }
+      ])
+    )
+  })
+  const { result } = renderHook(() => useQueueManager(undefined))
+  await act(async () => {
+    await result.current.handleLoadQueue()
+  })
+  expect(result.current.queuedJobs).toHaveLength(2)
+  expect(new Set(result.current.queuedJobs.map((job) => job.id)).size).toBe(2)
+})

@@ -429,3 +429,71 @@ describe('useEncodingSession', () => {
     expect(result.current.session.encodingLogs.join('\n')).toContain('Encoding cancelled by user.')
   })
 })
+
+test('canceling while an output path is being prepared prevents FFmpeg from launching', async () => {
+  const api = mockWindowApi()
+  let resolvePath!: (path: string) => void
+  api.pathJoin.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolvePath = resolve
+      })
+  )
+  const { result } = renderHook(() => {
+    const [jobs, setJobs] = useState([makeJob('cancel-path')])
+    const [ids, setIds] = useState(['cancel-path'])
+    return useEncodingSession({
+      queuedJobs: jobs,
+      setQueuedJobs: setJobs,
+      selectedJobIds: ids,
+      setSelectedJobIds: setIds,
+      maxConcurrency: 1,
+      ffmpegPath: undefined,
+      config: baseConfig
+    })
+  })
+  act(() => result.current.handleStartEncoding())
+  await waitFor(() => expect(api.pathJoin).toHaveBeenCalled())
+  await act(async () => {
+    await result.current.handleCancelEncoding()
+    resolvePath('/out/canceled.mkv')
+  })
+  await waitFor(() => expect(result.current.isEncoding).toBe(false))
+  expect(api.startEncoding).not.toHaveBeenCalled()
+})
+
+test.each([
+  { inputPath: 'C:\\clip.mp4', root: 'C:\\' },
+  { inputPath: '\\\\server\\share\\clip.mp4', root: '\\\\server\\share\\' }
+])(
+  'preserves the source root for $inputPath when output directory is unset',
+  async ({ inputPath, root }) => {
+    const api = mockWindowApi()
+    api.pathJoin.mockImplementation(async (_path, part) => (part === '..' ? root : root + part))
+    api.startEncoding.mockRejectedValue(new Error('stop after checking path'))
+    const job = {
+      ...makeJob('windows-root', 0),
+      file: { ...makeJob('windows-root').file, path: inputPath }
+    }
+    const { result } = renderHook(() => {
+      const [jobs, setJobs] = useState([job])
+      const [ids, setIds] = useState([job.id])
+      return useEncodingSession({
+        queuedJobs: jobs,
+        setQueuedJobs: setJobs,
+        selectedJobIds: ids,
+        setSelectedJobIds: setIds,
+        maxConcurrency: 1,
+        ffmpegPath: undefined,
+        config: { ...baseConfig, outputDirectory: '' }
+      })
+    })
+    act(() => result.current.handleStartEncoding())
+    await waitFor(() => expect(api.startEncoding).toHaveBeenCalled())
+    expect(api.pathJoin).toHaveBeenNthCalledWith(1, inputPath, '..')
+    expect(api.startEncoding).toHaveBeenCalledWith(
+      expect.objectContaining({ outputPath: root + 'windows-root_x265.mkv' })
+    )
+    await waitFor(() => expect(result.current.isEncoding).toBe(false))
+  }
+)

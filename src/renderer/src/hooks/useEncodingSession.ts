@@ -34,6 +34,7 @@ export function useEncodingSession({
   const [encodingError, setEncodingError] = useState<string | null>(null)
   const [queueStartTime, setQueueStartTime] = useState<number | null>(null)
   const [totalQueueSize, setTotalQueueSize] = useState<number>(0)
+  const [sessionJobIds, setSessionJobIds] = useState<string[]>([])
   const [eta, setEta] = useState<string>('--')
   const [encodingSummary, setEncodingSummary] = useState<EncodingSummary | null>(null)
 
@@ -55,11 +56,13 @@ export function useEncodingSession({
   // Subscribe to per-job progress and log events from the main process
   useEffect(() => {
     const removeProgress = window.api.onEncodingProgress(({ jobId, progress }) => {
+      if (!activeJobIdsRef.current.has(jobId)) return
       setQueuedJobs((prev) =>
         prev.map((job) => (job.id === jobId ? { ...job, progress, status: 'encoding' } : job))
       )
     })
-    const removeLog = window.api.onEncodingLog(({ log }) => {
+    const removeLog = window.api.onEncodingLog(({ jobId, log }) => {
+      if (!activeJobIdsRef.current.has(jobId)) return
       setEncodingLogs((prev) => {
         const next = [...prev, log]
         return next.length > 1000 ? next.slice(-1000) : next
@@ -78,7 +81,7 @@ export function useEncodingSession({
       ? Math.min(
           100,
           (queuedJobs.reduce((acc, job) => {
-            if (!selectedJobIds.includes(job.id)) return acc
+            if (!sessionJobIds.includes(job.id)) return acc
             if (job.status === 'complete') return acc + 1
             if (job.status === 'encoding') return acc + job.progress / 100
             return acc
@@ -163,6 +166,7 @@ export function useEncodingSession({
     setEncodingSummary(null)
     setEncodingLogs(['Starting encoding process...'])
     setTotalQueueSize(jobsToRun.length)
+    setSessionJobIds(jobsToRun.map((job) => job.id))
 
     // Normalize selected jobs before a new run so previously failed/canceled
     // items can be retried immediately.
@@ -233,11 +237,14 @@ export function useEncodingSession({
 
         let targetDir = outputDirectory
         if (!targetDir) {
-          const lastSlash = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'))
-          targetDir = file.path.substring(0, lastSlash)
+          // Let the main process preserve drive roots and UNC share roots.
+          targetDir = await window.api.pathJoin(file.path, '..')
         }
 
         const outputPath = await window.api.pathJoin(targetDir, finalFilename)
+        if (!isEncodingRef.current || skippedJobIdsRef.current.has(job.id)) {
+          throw new Error('Encoding canceled')
+        }
 
         const options: EncodingOptions & { jobId: string } = {
           inputPath: file.path,
@@ -429,13 +436,12 @@ export function useEncodingSession({
   }
 
   const handleStartEncoding = (): void => {
-    if (selectedJobIds.length === 0) return
+    if (selectedJobIds.length === 0 || isEncodingRef.current) return
     void processQueue()
   }
 
   const handleCancelEncoding = async (): Promise<void> => {
     isEncodingRef.current = false
-    setIsEncoding(false)
     setQueuedJobs((prev) =>
       prev.map((job) =>
         job.status === 'encoding' ? { ...job, status: 'canceled', progress: 0 } : job

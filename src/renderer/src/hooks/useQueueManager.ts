@@ -2,6 +2,7 @@ import { useState, type Dispatch, type SetStateAction } from 'react'
 import { useLocalStorage } from './useLocalStorage'
 import type { QueuedJob, VideoFile, EncodingOptions } from '../types'
 import { MAX_QUEUE_CONCURRENCY, MAX_QUEUE_RETRIES } from '../constants/queue'
+import { filePathKey } from '../../../shared/filePaths'
 
 /**
  * Manages the encoding queue: job list, selection state, file probing,
@@ -9,6 +10,7 @@ import { MAX_QUEUE_CONCURRENCY, MAX_QUEUE_RETRIES } from '../constants/queue'
  */
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function useQueueManager(ffmpegPath: string | undefined) {
+  const platform = window.electron?.process.platform ?? 'unknown'
   const [queuedJobs, setQueuedJobs] = useLocalStorage<QueuedJob[]>('queue-state', [])
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([])
   const [storedMaxRetries, setStoredMaxRetries] = useLocalStorage<number>('queue-max-retries', 2)
@@ -57,11 +59,12 @@ export function useQueueManager(ffmpegPath: string | undefined) {
 
   const enqueueFiles = (files: VideoFile[]): void => {
     if (files.length === 0) return
-    const existingPaths = new Set(queuedJobs.map((j) => j.file.path))
+    const existingPaths = new Set(queuedJobs.map((j) => filePathKey(j.file.path, platform)))
     const newJobs: QueuedJob[] = files
       .filter((file) => {
-        if (existingPaths.has(file.path)) return false
-        existingPaths.add(file.path)
+        const key = filePathKey(file.path, platform)
+        if (existingPaths.has(key)) return false
+        existingPaths.add(key)
         return true
       })
       .map((file) => ({
@@ -116,11 +119,16 @@ export function useQueueManager(ffmpegPath: string | undefined) {
         const loaded = JSON.parse(content) as unknown
         if (Array.isArray(loaded)) {
           const seenPaths = new Set<string>()
+          const seenIds = new Set<string>()
           const sanitized = loaded
             .map((item) => sanitizeLoadedJob(item, maxRetries))
             .filter((job): job is QueuedJob => {
-              if (!job || seenPaths.has(job.file.path)) return false
-              seenPaths.add(job.file.path)
+              if (!job) return false
+              const key = filePathKey(job.file.path, platform)
+              if (seenPaths.has(key)) return false
+              seenPaths.add(key)
+              if (seenIds.has(job.id)) job.id = crypto.randomUUID()
+              seenIds.add(job.id)
               return true
             })
 
@@ -148,7 +156,10 @@ export function useQueueManager(ffmpegPath: string | undefined) {
           ? {
               ...job,
               overrides,
-              maxRetries: perJobRetries !== undefined ? perJobRetries : job.maxRetries
+              maxRetries:
+                perJobRetries !== undefined
+                  ? clampInteger(perJobRetries, 0, MAX_QUEUE_RETRIES)
+                  : job.maxRetries
             }
           : job
       )
