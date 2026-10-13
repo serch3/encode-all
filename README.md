@@ -25,19 +25,22 @@
 
 ### Core Functionality
 
-- **Batch & Queue** – Add folders, run sequential encodes with progress and status monitoring
-- **Formats & Codecs** – MP4/MKV/AVI/WebM support; H.264, H.265, VP9, AV1
+- **Batch & Queue** – Add folders, filter by status, undo removal, and run encodes with progress monitoring
+- **Output Review** – Check source files, effective encoding settings, available encoders, destination folders, and numbered output filenames before starting a batch
+- **Formats & Codecs** – MP4/MKV/MOV/WebM output; H.264, H.265, VP9, and NVIDIA AV1
 
 ### User Experience
 
 - **Modern UI & Themes** – Sleek design with light/dark mode
 - **Live Feedback** – FFmpeg command preview and real-time progress
-- **Quality Preview** – Encode 1–30 seconds with the selected settings and per-file overrides before starting a batch; play the sample in the app or your system player
+- **Preview Workspace** – A dedicated Preview tab with a large player, position control, and 1–30 second sample encodes using per-file overrides; inspect samples in a separate preview window or system player
+- **Readable Logs** – Expand terminal output when needed and pause automatic log following
 
 ### Encoding Configuration
 
 - **Codec & Audio Controls** – Video/audio codec, bitrate, channels, thread tuning
 - **Output Management** – Easy custom naming and output directory selection
+- **Starter Profiles** – Balanced MP4, Fast MP4, Compact HEVC, and WebM profiles with tradeoff descriptions and an indicator for modified settings
 
 ### Technical Features
 
@@ -67,12 +70,19 @@ On Linux, install FFmpeg with your distribution’s package manager. Examples:
 `sudo apt install ffmpeg` on Debian/Ubuntu or `sudo pacman -S ffmpeg` on Arch.
 Fedora’s `ffmpeg-free` package may need additional repositories for some codecs.
 
-Add and select videos, then use **Quality Preview** to choose a file, start time,
-and duration up to 30 seconds. The sample uses the file’s effective encoding
-settings, including queue overrides. Stream copy preserves original quality,
-so choose an encoder to preview compression. Embedded playback depends on the
-selected codec/container; **Open in System Player** opens the actual sample
-when the app’s player cannot play it. Samples use temporary storage.
+Add videos, then open the **Preview** tab to choose any queued file, start time,
+and duration up to 30 seconds. **Generate Preview** encodes a short sample using
+the file’s effective settings, including queue overrides. The clip remains
+available when you switch tabs to adjust settings. **Open Preview Window** opens
+the encoded sample in a separate resizable player. Stream copy preserves the
+original quality, so choose an encoder to preview compression. Playback depends
+on the codec/container; **Open in System Player** opens the actual sample when
+embedded playback is unavailable. Samples use temporary storage.
+
+Select the videos to encode and choose **Encode** to review their output paths.
+The review checks each source file, codec settings, available encoders, and
+output folder. Existing files and duplicate batch names receive numbered output
+filenames. Choose **Start batch** after resolving any reported problems.
 
 ## Development
 
@@ -151,9 +161,6 @@ and support Intel and Apple Silicon.
 Windows and macOS artifacts are unsigned unless signing credentials are provided
 to Electron Builder through repository secrets. Unsigned builds are useful for
 testing, but public releases should be signed before publishing.
-
-See [the app audit](docs/AUDIT.md) for implemented fixes, validation, dependency
-findings, platform limitations, and prioritized UX improvements.
 
 ## Tech Stack
 

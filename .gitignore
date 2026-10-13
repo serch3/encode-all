@@ -8,3 +8,4 @@ out
 requirements.txt
 plan.txt
 .vscode/
+/docs
