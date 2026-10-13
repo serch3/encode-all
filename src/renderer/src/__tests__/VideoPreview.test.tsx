@@ -2,6 +2,7 @@ import { fireEvent } from '@testing-library/react'
 import { mockWindowApi, renderWithProviders, screen, userEvent, waitFor } from '@test-utils'
 import VideoPreview from '../components/ffmpeg/VideoPreview'
 import { useEncodingConfig } from '../hooks/useEncodingConfig'
+import { useVideoPreview } from '../hooks/useVideoPreview'
 import type { QueuedJob } from '../types'
 
 const job: QueuedJob = {
@@ -13,17 +14,21 @@ const job: QueuedJob = {
   maxRetries: 0,
   overrides: { videoCodec: 'libx264', crf: 18, container: 'mp4' }
 }
-const onBusyChange = jest.fn()
-function Harness(): React.JSX.Element {
+function Harness({ jobs = [job] }: { jobs?: QueuedJob[] }): React.JSX.Element {
   const config = useEncodingConfig()
+  const preview = useVideoPreview({
+    jobs,
+    config,
+    ready: true,
+    isEncoding: false,
+    ffmpegPath: '/bin/ffmpeg'
+  })
   return (
     <VideoPreview
-      jobs={[job]}
-      config={config}
-      ready
-      isEncoding={false}
-      ffmpegPath="/bin/ffmpeg"
-      onBusyChange={onBusyChange}
+      preview={preview}
+      onAdjustSettings={jest.fn()}
+      onOpenQueue={jest.fn()}
+      onSetupFfmpeg={jest.fn()}
     />
   )
 }
@@ -42,7 +47,7 @@ test('generates a bounded sample with queue overrides and opens the actual encod
         ffmpegPath: '/bin/ffmpeg'
       }),
       startSeconds: 0,
-      durationSeconds: 30
+      durationSeconds: 10
     })
   )
   await userEvent.click(await screen.findByRole('button', { name: 'Open in System Player' }))
@@ -76,7 +81,7 @@ test('shows playback fallback and warns when settings change after generating', 
   fireEvent.error(video)
   expect(screen.getByText(/This format needs a system player/)).toBeInTheDocument()
   fireEvent.change(screen.getByRole('spinbutton', { name: 'Duration (seconds)' }), {
-    target: { value: '10' }
+    target: { value: '5' }
   })
   expect(screen.getByRole('status')).toHaveTextContent('Settings changed')
 })
@@ -93,7 +98,40 @@ test('allows cancellation without starting the batch', async () => {
   api.cancelPreview.mockImplementation(async () => reject(new Error('Preview canceled')))
   renderWithProviders(<Harness />)
   await userEvent.click(screen.getByRole('button', { name: 'Generate Preview' }))
+  await waitFor(() => expect(api.createPreview).toHaveBeenCalled())
   await userEvent.click(await screen.findByRole('button', { name: 'Cancel Preview' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Preview canceled')
   expect(api.startEncoding).not.toHaveBeenCalled()
+})
+
+test('opens the generated sample in its own preview window', async () => {
+  const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  const api = mockWindowApi()
+  renderWithProviders(<Harness />)
+  await userEvent.click(screen.getByRole('button', { name: 'Generate Preview' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Open Preview Window' }))
+  expect(api.openPreviewWindow).toHaveBeenCalledWith('preview-test')
+  expect(pause).toHaveBeenCalled()
+  pause.mockRestore()
+})
+
+test('canceling before preview creation prevents encoding from starting', async () => {
+  const api = mockWindowApi()
+  renderWithProviders(<Harness />)
+  fireEvent.click(screen.getByRole('button', { name: 'Generate Preview' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel Preview' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Preview canceled')
+  expect(api.createPreview).not.toHaveBeenCalled()
+})
+
+test('a finished clip remains viewable after its source leaves the queue', async () => {
+  const api = mockWindowApi()
+  const { rerender } = renderWithProviders(<Harness />)
+  await userEvent.click(screen.getByRole('button', { name: 'Generate Preview' }))
+  await screen.findByLabelText('Encoded quality preview')
+  rerender(<Harness jobs={[]} />)
+  expect(screen.getByLabelText('Encoded quality preview')).toBeInTheDocument()
+  expect(screen.queryByText(/Settings changed/)).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Generate Preview' })).toBeDisabled()
+  expect(api.releasePreview).not.toHaveBeenCalled()
 })

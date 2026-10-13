@@ -1,14 +1,15 @@
 import { Button, Divider, Tooltip } from '@heroui/react'
 import ThemeToggle from './ThemeToggle'
 import type React from 'react'
-import { Home, Settings, Info, List } from 'lucide-react'
+import { Home, Settings, Info, List, Clapperboard } from 'lucide-react'
 
 type SidebarProps = {
-  active: 'general' | 'settings' | 'about'
+  active: 'general' | 'preview' | 'settings' | 'about'
   onSelect: (key: SidebarProps['active']) => void
   onOpenQueue?: () => void
   queueStats?: { total: number; selected: number }
   isEncoding?: boolean
+  isPreviewing?: boolean
 }
 
 export default function Sidebar({
@@ -16,12 +17,18 @@ export default function Sidebar({
   onSelect,
   onOpenQueue,
   queueStats,
-  isEncoding
+  isEncoding,
+  isPreviewing
 }: SidebarProps): React.JSX.Element {
   return (
-    <aside className="h-full w-16 border-r border-foreground/10 p-2 flex flex-col gap-2">
-      <Tooltip content="General" placement="right" delay={300}>
+    <aside
+      aria-label="App navigation"
+      className="h-full w-16 shrink-0 border-r border-foreground/10 p-2 flex flex-col gap-2"
+    >
+      <Tooltip content="Encode videos" placement="right" delay={300}>
         <Button
+          aria-label="Encode videos"
+          aria-current={active === 'general' ? 'page' : undefined}
           variant={active === 'general' ? 'flat' : 'light'}
           onPress={() => onSelect('general')}
           isIconOnly
@@ -36,8 +43,29 @@ export default function Sidebar({
         </Button>
       </Tooltip>
 
+      <Tooltip content="Preview" placement="right" delay={300}>
+        <Button
+          aria-label={isPreviewing ? 'Preview, encoding sample' : 'Preview'}
+          aria-current={active === 'preview' ? 'page' : undefined}
+          variant={active === 'preview' ? 'flat' : 'light'}
+          onPress={() => onSelect('preview')}
+          isIconOnly
+          className="w-12 h-12 relative"
+        >
+          <Clapperboard className="w-5 h-5" />
+          {isPreviewing && (
+            <span
+              aria-hidden="true"
+              className="absolute top-2 right-2 w-2 h-2 rounded-full bg-primary animate-pulse"
+            />
+          )}
+        </Button>
+      </Tooltip>
+
       <Tooltip content="Settings" placement="right" delay={300}>
         <Button
+          aria-label="Settings"
+          aria-current={active === 'settings' ? 'page' : undefined}
           variant={active === 'settings' ? 'flat' : 'light'}
           onPress={() => onSelect('settings')}
           isIconOnly
@@ -49,6 +77,8 @@ export default function Sidebar({
 
       <Tooltip content="About" placement="right" delay={300}>
         <Button
+          aria-label="About"
+          aria-current={active === 'about' ? 'page' : undefined}
           variant={active === 'about' ? 'flat' : 'light'}
           onPress={() => onSelect('about')}
           isIconOnly
@@ -77,9 +107,14 @@ export default function Sidebar({
         delay={300}
       >
         <Button
+          aria-label={
+            queueStats
+              ? `Video queue, ${queueStats.selected} of ${queueStats.total} files selected`
+              : 'Video queue'
+          }
           variant="light"
           onPress={() => onOpenQueue?.()}
-          isDisabled={!queueStats || queueStats.total === 0}
+          isDisabled={!onOpenQueue}
           isIconOnly
           className="w-12 h-12 relative"
         >
@@ -90,8 +125,8 @@ export default function Sidebar({
             </span>
           )}
           {!isEncoding && queueStats && queueStats.total > 0 && (
-            <span className="absolute top-1 right-1 bg-primary text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-              {queueStats.selected}
+            <span className="absolute top-1 right-1 bg-primary text-white text-[10px] rounded-full min-w-4 px-0.5 h-4 flex items-center justify-center">
+              {queueStats.total > 99 ? '99+' : queueStats.total}
             </span>
           )}
         </Button>

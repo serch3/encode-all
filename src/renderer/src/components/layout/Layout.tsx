@@ -1,15 +1,16 @@
 import Sidebar from './Sidebar'
-import type React from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 type LayoutProps = {
   title?: string
-  active: 'general' | 'settings' | 'about'
+  active: 'general' | 'preview' | 'settings' | 'about'
   onSelect: (key: LayoutProps['active']) => void
-  children: React.ReactNode
+  children: ReactNode
   onOpenQueue?: () => void
   queueStats?: { total: number; selected: number }
   isEncoding?: boolean
+  isPreviewing?: boolean
   overallProgress?: number
 }
 
@@ -20,8 +21,19 @@ export default function Layout({
   onOpenQueue,
   queueStats,
   isEncoding,
+  isPreviewing,
   overallProgress
 }: LayoutProps): React.JSX.Element {
+  const [reducedMotion, setReducedMotion] = useState(
+    () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+  useEffect(() => {
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const update = (): void => setReducedMotion(preference.matches)
+    update()
+    preference.addEventListener('change', update)
+    return () => preference.removeEventListener('change', update)
+  }, [])
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col">
       {isEncoding && overallProgress !== undefined && (
@@ -40,16 +52,17 @@ export default function Layout({
             onOpenQueue={onOpenQueue}
             queueStats={queueStats}
             isEncoding={isEncoding}
+            isPreviewing={isPreviewing}
           />
-          <main className="flex-1 overflow-hidden bg-background/40 relative">
+          <main className="flex-1 min-w-0 overflow-hidden bg-background/40 relative">
             <AnimatePresence mode="wait">
               <motion.div
                 key={active}
-                initial={{ opacity: 0, y: 10, filter: 'blur(4px)' }}
+                initial={reducedMotion ? false : { opacity: 0, y: 10, filter: 'blur(4px)' }}
                 animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                exit={{ opacity: 0, y: -10, filter: 'blur(4px)' }}
-                transition={{ duration: 0.2 }}
-                className="absolute inset-0 p-4 overflow-auto"
+                exit={reducedMotion ? { opacity: 1 } : { opacity: 0, y: -10, filter: 'blur(4px)' }}
+                transition={{ duration: reducedMotion ? 0 : 0.2 }}
+                className="absolute inset-0 p-4 overflow-auto scroll-pb-28"
               >
                 {children}
               </motion.div>
