@@ -34,6 +34,13 @@ export function buildFfmpegArgParts(options: EncodingOptions): FfmpegArgParts {
   } = options
 
   const baseArgs = ['-hide_banner', '-nostdin', '-i', inputPath, '-map_metadata', '0']
+  if (options.trimStartSeconds !== undefined) {
+    // Output-side seeking remains accurate for files with sparse keyframes.
+    baseArgs.push('-ss', options.trimStartSeconds.toString())
+  }
+  if (options.trimDurationSeconds !== undefined) {
+    baseArgs.push('-t', options.trimDurationSeconds.toString())
+  }
 
   const videoArgs = ['-c:v', videoCodec]
   if (videoCodec !== 'copy') {
@@ -122,10 +129,7 @@ export function buildTwoPassFfmpegArgs(
       '-an',
       '-sn',
       ...commonArgs,
-      '-pass',
-      '1',
-      '-passlogfile',
-      passLogPrefix,
+      ...passArgsFor(options.videoCodec, 1, passLogPrefix),
       '-f',
       'null',
       nullOutputPath
@@ -137,13 +141,19 @@ export function buildTwoPassFfmpegArgs(
       ...subtitleArgs,
       ...commonArgs,
       ...mapArgs,
-      '-pass',
-      '2',
-      '-passlogfile',
-      passLogPrefix,
+      ...passArgsFor(options.videoCodec, 2, passLogPrefix),
       ...finalOutputArgs(options, outputPath)
     ]
   }
+}
+
+function passArgsFor(codec: string, pass: number, prefix: string): string[] {
+  if (codec === 'libx265') {
+    // x265 parses colons as separators, including drive letters on Windows.
+    const stats = prefix.replace(/\\/g, '/').replace(/:/g, '\\:')
+    return ['-x265-params', `pass=${pass}:stats=${stats}`]
+  }
+  return ['-pass', pass.toString(), '-passlogfile', prefix]
 }
 
 function finalOutputArgs(options: EncodingOptions, outputPath: string): string[] {
@@ -151,12 +161,29 @@ function finalOutputArgs(options: EncodingOptions, outputPath: string): string[]
   const container = options.container.toLowerCase()
   if (container === 'mp4' || container === 'mov' || container === 'm4v') {
     args.push('-movflags', '+faststart')
+    if (options.videoCodec === 'libx265' || options.videoCodec === 'hevc_nvenc') {
+      args.push('-tag:v', 'hvc1')
+    }
   }
   args.push(outputPath)
   return args
 }
 
 function presetArgsFor(videoCodec: string, preset: string): string[] {
+  if (videoCodec.includes('nvenc')) {
+    const presets: Record<string, string> = {
+      ultrafast: 'p1',
+      superfast: 'p1',
+      veryfast: 'p2',
+      faster: 'p3',
+      fast: 'p4',
+      medium: 'p4',
+      slow: 'p5',
+      slower: 'p6',
+      veryslow: 'p7'
+    }
+    return ['-preset', presets[preset] ?? 'p4']
+  }
   if (videoCodec === 'libvpx-vp9') {
     return ['-deadline', 'good', '-cpu-used', vp9CpuUsedFor(preset)]
   }

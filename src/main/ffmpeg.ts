@@ -1,13 +1,27 @@
 import { spawn, ChildProcess } from 'child_process'
 import { BrowserWindow, powerSaveBlocker } from 'electron'
-import { createWriteStream, WriteStream, mkdirSync, existsSync } from 'fs'
-import { join, basename, dirname, extname } from 'path'
+import { createWriteStream, WriteStream, mkdirSync, existsSync, rmSync, mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join, basename, dirname, extname, resolve, win32 } from 'path'
 import { EncodingOptions } from '../preload/api.types'
 import {
   buildSinglePassFfmpegArgs,
   buildTwoPassFfmpegArgs,
   canUseTwoPass
 } from '../shared/ffmpegArgs'
+
+function sendEvent(window: BrowserWindow, channel: string, payload: unknown): void {
+  if (!window.isDestroyed?.() && !window.webContents.isDestroyed?.())
+    window.webContents.send(channel, payload)
+}
+
+function setWindowProgress(
+  window: BrowserWindow,
+  progress: number,
+  options?: Electron.ProgressBarOptions
+): void {
+  if (!window.isDestroyed?.()) window.setProgressBar(progress, options)
+}
 
 type JobRecord = {
   id: string
@@ -17,6 +31,7 @@ type JobRecord = {
   outputPath: string
   hasPowerSaveBlocker: boolean
   canceled: boolean
+  passDirectory?: string
 }
 
 const jobs = new Map<string, JobRecord>()
@@ -91,7 +106,7 @@ function reserveOutputPath(filePath: string): string {
 }
 
 function normalizeOutputPath(filePath: string): string {
-  return process.platform === 'win32' ? filePath.toLowerCase() : filePath
+  return process.platform === 'win32' ? win32.resolve(filePath).toLowerCase() : resolve(filePath)
 }
 
 function closeLogStream(job: JobRecord): void {
@@ -110,6 +125,13 @@ function finalizeJob(job: JobRecord): void {
   releaseJobPowerSaveBlocker(job)
   reservedOutputPaths.delete(normalizeOutputPath(job.outputPath))
   jobs.delete(job.id)
+  if (job.passDirectory) {
+    try {
+      rmSync(job.passDirectory, { recursive: true, force: true })
+    } catch (error) {
+      console.warn('Could not remove pass statistics:', error)
+    }
+  }
 }
 
 // Helper to run ffmpeg command as promise
@@ -121,43 +143,49 @@ function runFfmpegCommand(
   onProgress: (progress: number) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    job.process = spawn(executable, args)
+    if (job.canceled) {
+      reject(new Error('Encoding canceled'))
+      return
+    }
+    job.process = spawn(executable, args, { windowsHide: true })
     let duration = 0
+    let recentOutput = ''
 
     job.process.stderr?.on('data', (data) => {
       const str = data.toString()
+      recentOutput = (recentOutput + str).slice(-16_000)
       job.logStream?.write(str)
-      mainWindow.webContents.send('encoding-log', { jobId: job.id, log: str })
+      sendEvent(mainWindow, 'encoding-log', { jobId: job.id, log: str })
 
       // Parse duration
       if (!duration) {
-        const durationMatch = str.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/)
+        const durationMatch = recentOutput.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/)
         if (durationMatch) {
           const hours = parseFloat(durationMatch[1])
           const minutes = parseFloat(durationMatch[2])
           const seconds = parseFloat(durationMatch[3])
           duration = hours * 3600 + minutes * 60 + seconds
-          job.duration = duration
+          job.duration = job.duration || duration
         }
       }
 
       // Parse time for progress
-      const timeMatch = str.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/)
-      if (timeMatch && duration > 0) {
+      const timeMatch = [...recentOutput.matchAll(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/g)].at(-1)
+      if (timeMatch && job.duration > 0) {
         const hours = parseFloat(timeMatch[1])
         const minutes = parseFloat(timeMatch[2])
         const seconds = parseFloat(timeMatch[3])
         const currentTime = hours * 3600 + minutes * 60 + seconds
-        const progress = Math.min(100, Math.round((currentTime / duration) * 100))
+        const progress = Math.min(100, Math.round((currentTime / job.duration) * 100))
         onProgress(progress)
       }
     })
 
     job.process.on('close', (code) => {
-      if (code === 0) {
+      if (code === 0 && !job.canceled) {
         resolve()
       } else {
-        reject(new Error(`FFmpeg exited with code ${code}`))
+        reject(new Error(`FFmpeg exited with code ${code}: ${recentOutput.slice(-2000)}`))
       }
     })
 
@@ -169,8 +197,9 @@ function runFfmpegCommand(
 
 export async function startEncoding(
   options: EncodingOptions & { jobId?: string },
-  mainWindow: BrowserWindow
-): Promise<void> {
+  mainWindow: BrowserWindow,
+  throwOnError = false
+): Promise<string | undefined> {
   const {
     inputPath,
     outputPath,
@@ -202,7 +231,7 @@ export async function startEncoding(
     id: jobId,
     process: null,
     logStream: null,
-    duration: 0,
+    duration: options.trimDurationSeconds ?? 0,
     outputPath: resolvedOutputPath,
     hasPowerSaveBlocker: false,
     canceled: false
@@ -210,7 +239,7 @@ export async function startEncoding(
   jobs.set(jobId, job)
 
   if (resolvedOutputPath !== outputPath) {
-    mainWindow.webContents.send('encoding-log', {
+    sendEvent(mainWindow, 'encoding-log', {
       jobId,
       log: `[warn] Output already exists — saving as "${basename(resolvedOutputPath)}" instead.\n`
     })
@@ -240,7 +269,9 @@ export async function startEncoding(
       twoPass: effectiveTwoPass,
       subtitleMode,
       videoBitrate,
-      rateControlMode
+      rateControlMode,
+      trimStartSeconds: options.trimStartSeconds,
+      trimDurationSeconds: options.trimDurationSeconds
     }
 
     // Logging setup
@@ -265,6 +296,10 @@ export async function startEncoding(
         logPath = `${resolvedOutputPath}.log`
       }
       job.logStream = createWriteStream(logPath)
+      job.logStream.on?.('error', (error) => {
+        sendEvent(mainWindow, 'encoding-log', { jobId, log: `Logging failed: ${error.message}\n` })
+        closeLogStream(job)
+      })
     }
 
     // Prevent system sleep during encoding
@@ -272,7 +307,7 @@ export async function startEncoding(
     job.hasPowerSaveBlocker = true
 
     if (twoPass && !effectiveTwoPass) {
-      mainWindow.webContents.send('encoding-log', {
+      sendEvent(mainWindow, 'encoding-log', {
         jobId,
         log: '[warn] Two-pass encoding requires average bitrate mode with a supported software encoder and was skipped.\n'
       })
@@ -280,24 +315,11 @@ export async function startEncoding(
 
     if (effectiveTwoPass) {
       // Pass 1
-      mainWindow.webContents.send('encoding-log', { jobId, log: 'Starting Pass 1/2...\n' })
+      sendEvent(mainWindow, 'encoding-log', { jobId, log: 'Starting Pass 1/2...\n' })
 
-      // For 2-pass encoding, we need a temp directory for pass stats
-      // Use the same strategy as logging, but always create it for 2-pass
-      let pass1StatsDir: string
-      if (logPath) {
-        pass1StatsDir = dirname(logPath)
-      } else if (jobTimestamp) {
-        const outputDir = dirname(outputPath)
-        pass1StatsDir = join(outputDir, `logs_${jobTimestamp}`)
-        if (!existsSync(pass1StatsDir)) {
-          mkdirSync(pass1StatsDir, { recursive: true })
-        }
-      } else {
-        pass1StatsDir = dirname(outputPath)
-      }
-
-      const passLogPrefix = join(pass1StatsDir, `ffmpeg2pass-${pathHash(filename)}`)
+      // Each job has isolated pass statistics, including concurrent encodes.
+      job.passDirectory = mkdtempSync(join(tmpdir(), 'encode-all-pass-'))
+      const passLogPrefix = join(job.passDirectory, 'stats')
       const { pass1Args, pass2Args } = buildTwoPassFfmpegArgs(
         effectiveOptions,
         resolvedOutputPath,
@@ -307,35 +329,35 @@ export async function startEncoding(
 
       await runFfmpegCommand(executable, pass1Args, mainWindow, job, (p) => {
         const total = p / 2
-        mainWindow.webContents.send('encoding-progress', { jobId, progress: total })
-        mainWindow.setProgressBar(total / 100)
+        sendEvent(mainWindow, 'encoding-progress', { jobId, progress: total })
+        setWindowProgress(mainWindow, total / 100)
       })
 
       // Pass 2
-      mainWindow.webContents.send('encoding-log', { jobId, log: 'Starting Pass 2/2...\n' })
+      sendEvent(mainWindow, 'encoding-log', { jobId, log: 'Starting Pass 2/2...\n' })
 
       await runFfmpegCommand(executable, pass2Args, mainWindow, job, (p) => {
         const total = 50 + p / 2
-        mainWindow.webContents.send('encoding-progress', { jobId, progress: total })
-        mainWindow.setProgressBar(total / 100)
+        sendEvent(mainWindow, 'encoding-progress', { jobId, progress: total })
+        setWindowProgress(mainWindow, total / 100)
       })
-
-      // Cleanup log file? ffmpeg usually handles it or leaves it.
     } else {
       // Single Pass
       const args = buildSinglePassFfmpegArgs(effectiveOptions, resolvedOutputPath)
 
       await runFfmpegCommand(executable, args, mainWindow, job, (p) => {
-        mainWindow.webContents.send('encoding-progress', { jobId, progress: p })
-        mainWindow.setProgressBar(p / 100)
+        sendEvent(mainWindow, 'encoding-progress', { jobId, progress: p })
+        setWindowProgress(mainWindow, p / 100)
       })
     }
 
     // Success
+    if (job.canceled) throw new Error('Encoding canceled')
     job.process = null
     finalizeJob(job)
-    mainWindow.webContents.send('encoding-complete', { jobId, outputPath: resolvedOutputPath })
-    mainWindow.setProgressBar(-1)
+    sendEvent(mainWindow, 'encoding-complete', { jobId, outputPath: resolvedOutputPath })
+    setWindowProgress(mainWindow, -1)
+    return resolvedOutputPath
   } catch (error) {
     job.process = null
     finalizeJob(job)
@@ -344,8 +366,10 @@ export async function startEncoding(
       : error instanceof Error
         ? error.message
         : 'Unknown error'
-    mainWindow.webContents.send('encoding-error', { jobId, error: msg })
-    mainWindow.setProgressBar(1, { mode: 'error' })
+    sendEvent(mainWindow, 'encoding-error', { jobId, error: msg })
+    setWindowProgress(mainWindow, 1, { mode: 'error' })
+    if (throwOnError) throw new Error(msg)
+    return undefined
   }
 }
 

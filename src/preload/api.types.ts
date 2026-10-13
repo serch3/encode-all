@@ -76,6 +76,9 @@ export interface EncodingOptions {
   subtitleMode: string
   videoBitrate: number
   rateControlMode: 'crf' | 'bitrate'
+  /** Used only for bounded sample encodes. */
+  trimStartSeconds?: number
+  trimDurationSeconds?: number
 }
 
 export interface EncodingProgressPayload {

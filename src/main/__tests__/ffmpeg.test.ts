@@ -17,7 +17,9 @@ jest.mock('child_process', () => ({
 jest.mock('fs', () => ({
   createWriteStream: (...args: unknown[]) => createWriteStreamMock(...args),
   existsSync: (...args: unknown[]) => existsSyncMock(...args),
-  mkdirSync: (...args: unknown[]) => mkdirSyncMock(...args)
+  mkdirSync: (...args: unknown[]) => mkdirSyncMock(...args),
+  mkdtempSync: () => '/tmp/encode-all-pass-test',
+  rmSync: jest.fn()
 }))
 
 jest.mock('electron', () => ({
@@ -371,5 +373,54 @@ describe('startEncoding', () => {
     expect(proc.kill).toHaveBeenCalled()
     expect(logStream.end).toHaveBeenCalled()
     expect(powerSaveBlockerStopMock).toHaveBeenCalled()
+  })
+})
+
+test('cancellation between passes prevents the second process from starting', async () => {
+  const proc = createMockProcess()
+  const options = {
+    ...createBaseOptions(),
+    videoCodec: 'libx264',
+    twoPass: true,
+    rateControlMode: 'bitrate' as const,
+    jobId: 'cancel-between-passes'
+  }
+  spawnMock.mockImplementation(() => {
+    process.nextTick(() => {
+      proc.emit('close', 0)
+      cancelEncoding(options.jobId)
+    })
+    return proc
+  })
+  createWriteStreamMock.mockReturnValue(createLogStream())
+  const window = createMainWindowMock()
+  await startEncoding(options, window as never)
+  expect(spawnMock).toHaveBeenCalledTimes(1)
+  expect(window.webContents.send).toHaveBeenCalledWith('encoding-error', {
+    jobId: options.jobId,
+    error: 'Encoding canceled'
+  })
+  expect(window.webContents.send).not.toHaveBeenCalledWith('encoding-complete', expect.anything())
+})
+
+test('preview progress uses clip length and handles split stderr records', async () => {
+  const proc = createMockProcess()
+  spawnMock.mockImplementation(() => {
+    process.nextTick(() => {
+      proc.stderr?.emit('data', Buffer.from('Duration: 00:01:40.00\n time=00:00:'))
+      proc.stderr?.emit('data', Buffer.from('05.00 speed=1x\n'))
+      proc.emit('close', 0)
+    })
+    return proc
+  })
+  createWriteStreamMock.mockReturnValue(createLogStream())
+  const window = createMainWindowMock()
+  await startEncoding(
+    { ...createBaseOptions(), trimDurationSeconds: 10, jobId: 'preview-progress' },
+    window as never
+  )
+  expect(window.webContents.send).toHaveBeenCalledWith('encoding-progress', {
+    jobId: 'preview-progress',
+    progress: 50
   })
 })
