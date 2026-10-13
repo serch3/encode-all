@@ -3,11 +3,17 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { writeFileSync, readFileSync, type Dirent, type Stats } from 'fs'
 import { readdir, stat } from 'fs/promises'
-import { spawn } from 'child_process'
 import icon from '../../resources/icon.png?asset'
 import { startEncoding, cancelEncoding } from './ffmpeg'
 import { EncodingOptions } from '../preload/api.types'
-
+import {
+  checkFfmpegInstallation,
+  checkNvidiaSupport,
+  runBinary,
+  resolveFfprobePath,
+  getFfmpegInstaller,
+  installFfmpeg
+} from './ffmpegSetup'
 const VIDEO_EXTENSIONS = new Set([
   '.mp4',
   '.mkv',
@@ -20,105 +26,6 @@ const VIDEO_EXTENSIONS = new Set([
   '.3gp',
   '.ts'
 ])
-
-/**
- * Checks if FFmpeg is installed and available on the system.
- *
- * @returns Promise with FFmpeg installation status, version, and path
- *
- * @remarks
- * - Attempts to detect FFmpeg using `ffmpeg -version` command
- * - Tries to locate the executable path using platform-specific commands (where/which)
- */
-async function checkFfmpegInstallation(ffmpegPath?: string): Promise<{
-  isInstalled: boolean
-  version?: string
-  path?: string
-  error?: string
-}> {
-  const executable = ffmpegPath || 'ffmpeg'
-
-  try {
-    const stdout = await runBinary(executable, ['-version'])
-    const versionMatch = stdout.match(/ffmpeg version ([^\s]+)/)
-    const version = versionMatch ? versionMatch[1] : 'Unknown'
-    const path = ffmpegPath || (await locateExecutable('ffmpeg'))
-
-    return {
-      isInstalled: true,
-      version,
-      path
-    }
-  } catch (error) {
-    return {
-      isInstalled: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }
-  }
-}
-
-/**
- * Checks if NVIDIA NVENC encoding is supported by the installed FFmpeg.
- *
- * @returns Promise with boolean indicating support
- */
-async function checkNvidiaSupport(ffmpegPath?: string): Promise<boolean> {
-  try {
-    const stdout = await runBinary(ffmpegPath || 'ffmpeg', ['-hide_banner', '-encoders'])
-    return stdout.includes('nvenc')
-  } catch (error) {
-    console.error('Failed to check NVIDIA support:', error)
-    return false
-  }
-}
-
-function runBinary(executable: string, args: string[], timeoutMs = 10_000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(executable, args)
-    let stdout = ''
-    let stderr = ''
-    let settled = false
-
-    const timeout = setTimeout(() => {
-      proc.kill()
-      settle(() => reject(new Error(`${executable} timed out after ${timeoutMs}ms`)))
-    }, timeoutMs)
-
-    function settle(callback: () => void): void {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      callback()
-    }
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      stdout += data.toString()
-    })
-    proc.stderr?.on('data', (data: Buffer) => {
-      stderr += data.toString()
-    })
-    proc.on('close', (code) => {
-      if (code === 0) {
-        settle(() => resolve(stdout))
-        return
-      }
-      settle(() => reject(new Error(`${executable} exited with code ${code}: ${stderr}`)))
-    })
-    proc.on('error', (error) => {
-      settle(() => reject(error))
-    })
-  })
-}
-
-async function locateExecutable(executable: string): Promise<string | undefined> {
-  try {
-    const locator = process.platform === 'win32' ? 'where' : 'which'
-    const stdout = await runBinary(locator, [executable], 5_000)
-    return stdout.trim().split(/\r?\n/)[0]
-  } catch {
-    return undefined
-  }
-}
 
 /**
  * Opens a file dialog to allow the user to select an FFmpeg executable.
@@ -182,6 +89,14 @@ function createWindow(): void {
     }
   })
 
+  mainWindow.on('closed', () => {
+    cancelEncoding()
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== mainWindow.webContents.getURL()) event.preventDefault()
+  })
+
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
@@ -204,6 +119,12 @@ function createWindow(): void {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
+  ipcMain.handle('get-ffmpeg-installer', getFfmpegInstaller)
+  ipcMain.handle('install-ffmpeg', (event) =>
+    installFfmpeg((log) => {
+      if (!event.sender.isDestroyed()) event.sender.send('ffmpeg-install-log', log)
+    })
+  )
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.serch3.encode-all')
 
@@ -241,6 +162,8 @@ app.whenReady().then(() => {
       modified: number
     }>
   > {
+    // Report errors for the selected folder; unreadable nested folders can be skipped.
+    const rootEntries = await readdir(folderPath, { withFileTypes: true })
     const SCAN_CONCURRENCY = 8
     const pendingFolders = [folderPath]
     const videoFiles: Array<{
@@ -254,7 +177,10 @@ app.whenReady().then(() => {
     const scanFolder = async (currentFolder: string): Promise<void> => {
       let entries: Dirent[]
       try {
-        entries = await readdir(currentFolder, { withFileTypes: true })
+        entries =
+          currentFolder === folderPath
+            ? rootEntries
+            : await readdir(currentFolder, { withFileTypes: true })
       } catch (error) {
         console.warn(
           `Skipping unreadable folder ${currentFolder}:`,
@@ -365,10 +291,7 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('probe-file', async (_, filePath: string, ffmpegPath?: string) => {
-    // Derive ffprobe path: replace the ffmpeg binary name with ffprobe
-    const probeBin = ffmpegPath
-      ? ffmpegPath.replace(/ffmpeg(\.exe)?$/i, (_, ext) => `ffprobe${ext ?? ''}`)
-      : 'ffprobe'
+    const probeBin = await resolveFfprobePath(ffmpegPath)
     // Use spawn with an args array to prevent shell injection via filePath
     const stdout = await runBinary(
       probeBin,
@@ -421,6 +344,10 @@ app.whenReady().then(() => {
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  cancelEncoding()
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

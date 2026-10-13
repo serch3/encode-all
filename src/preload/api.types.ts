@@ -56,6 +56,21 @@ export interface CustomAPI {
   probeFile: (filePath: string, ffmpegPath?: string) => Promise<MediaInfo>
 }
 
+export interface FfmpegStatus {
+  isInstalled: boolean
+  version?: string
+  path?: string
+  ffprobePath?: string
+  error?: string
+}
+
+export interface FfmpegInstaller {
+  available: boolean
+  manager: 'winget' | 'brew' | null
+  command?: string
+  reason?: string
+}
+
 export interface EncodingOptions {
   inputPath: string
   outputPath: string
