@@ -1,8 +1,13 @@
-import { useState, type Dispatch, type SetStateAction } from 'react'
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useLocalStorage } from './useLocalStorage'
 import type { QueuedJob, VideoFile, EncodingOptions } from '../types'
 import { MAX_QUEUE_CONCURRENCY, MAX_QUEUE_RETRIES } from '../constants/queue'
 import { filePathKey } from '../../../shared/filePaths'
+
+export interface QueueFeedback {
+  message: string
+  isError: boolean
+}
 
 /**
  * Manages the encoding queue: job list, selection state, file probing,
@@ -19,6 +24,12 @@ export function useQueueManager(ffmpegPath: string | undefined) {
     1
   )
   const [isQueueOpen, setIsQueueOpen] = useState<boolean>(false)
+  const [queueFeedback, setQueueFeedback] = useState<QueueFeedback | null>(null)
+  const [isLoadingQueue, setIsLoadingQueue] = useState(false)
+  const loadingQueue = useRef(false)
+  const [removedJobs, setRemovedJobs] = useState<
+    Array<{ job: QueuedJob; index: number; selected: boolean }>
+  >([])
   const maxRetries = clampInteger(storedMaxRetries, 0, MAX_QUEUE_RETRIES)
   const maxConcurrency = clampInteger(storedMaxConcurrency, 1, MAX_QUEUE_CONCURRENCY)
 
@@ -76,7 +87,16 @@ export function useQueueManager(ffmpegPath: string | undefined) {
         maxRetries,
         overrides: undefined
       }))
-    if (newJobs.length === 0) return
+    if (newJobs.length === 0) {
+      setQueueFeedback({ message: 'These videos are already in the queue.', isError: false })
+      setIsQueueOpen(true)
+      return
+    }
+    const skipped = files.length - newJobs.length
+    setQueueFeedback({
+      message: `Added ${newJobs.length} video${newJobs.length === 1 ? '' : 's'} to the queue.${skipped > 0 ? ` Skipped ${skipped} duplicate${skipped === 1 ? '' : 's'}.` : ''}`,
+      isError: false
+    })
     setQueuedJobs((prev) => [...prev, ...newJobs])
     setSelectedJobIds((ids) => [...ids, ...newJobs.map((j) => j.id)])
     setIsQueueOpen(true)
@@ -90,30 +110,64 @@ export function useQueueManager(ffmpegPath: string | undefined) {
     })
   }
 
-  const handleSelectAll = (): void => {
-    setSelectedJobIds(queuedJobs.map((j) => j.id))
+  const handleSelectAll = (jobIds?: string[]): void => {
+    const ids = jobIds ?? queuedJobs.map((j) => j.id)
+    setSelectedJobIds((prev) => [...new Set([...prev, ...ids])])
   }
 
-  const handleClearSelection = (): void => {
-    setSelectedJobIds([])
+  const handleClearSelection = (jobIds?: string[]): void => {
+    setSelectedJobIds((prev) => (jobIds ? prev.filter((id) => !jobIds.includes(id)) : []))
   }
 
   const handleRemoveJobs = (jobIdsToRemove: string[]): void => {
+    const removed = queuedJobs
+      .map((job, index) => ({ job, index, selected: selectedJobIds.includes(job.id) }))
+      .filter((item) => jobIdsToRemove.includes(item.job.id))
+    if (removed.length === 0) return
+    setRemovedJobs(removed)
     setQueuedJobs((prev) => prev.filter((job) => !jobIdsToRemove.includes(job.id)))
     setSelectedJobIds((prev) => prev.filter((id) => !jobIdsToRemove.includes(id)))
   }
 
+  const handleUndoRemove = (): void => {
+    const existing = new Set(queuedJobs.map((job) => filePathKey(job.file.path, platform)))
+    const restored = removedJobs.filter(
+      (item) =>
+        !existing.has(filePathKey(item.job.file.path, platform)) &&
+        !queuedJobs.some((job) => job.id === item.job.id)
+    )
+    const next = [...queuedJobs]
+    for (const item of restored) next.splice(Math.min(item.index, next.length), 0, item.job)
+    setQueuedJobs(next)
+    setSelectedJobIds((ids) => [
+      ...new Set([...ids, ...restored.filter((item) => item.selected).map((item) => item.job.id)])
+    ])
+    setRemovedJobs([])
+    void probeNewJobs(
+      restored.map((item) => item.job).filter((job) => !job.mediaInfo && !job.mediaInfoError)
+    )
+  }
+
   const handleSaveQueue = async (jobsToSave: QueuedJob[]): Promise<void> => {
     try {
+      setQueueFeedback(null)
       const content = JSON.stringify(jobsToSave, null, 2)
-      await window.api.saveTextFile(content, 'queue.json')
+      const saved = await window.api.saveTextFile(content, 'queue.json')
+      if (saved) setQueueFeedback({ message: 'Queue saved.', isError: false })
     } catch (error) {
-      console.error('Failed to save queue', error)
+      setQueueFeedback({
+        message: error instanceof Error ? error.message : 'Could not save the queue.',
+        isError: true
+      })
     }
   }
 
   const handleLoadQueue = async (): Promise<void> => {
+    if (loadingQueue.current) return
+    loadingQueue.current = true
+    setIsLoadingQueue(true)
     try {
+      setQueueFeedback(null)
       const content = await window.api.readTextFile()
       if (content) {
         const loaded = JSON.parse(content) as unknown
@@ -132,16 +186,43 @@ export function useQueueManager(ffmpegPath: string | undefined) {
               return true
             })
 
-          if (sanitized.length === 0) return
+          if (sanitized.length === 0) {
+            setQueueFeedback({
+              message: 'This queue contains no valid video files. Choose another queue file.',
+              isError: true
+            })
+            return
+          }
 
           setQueuedJobs(sanitized)
+          setRemovedJobs([])
           setSelectedJobIds(sanitized.map((j) => j.id))
           setIsQueueOpen(true)
+          setQueueFeedback({
+            message: `Loaded ${sanitized.length} video${sanitized.length === 1 ? '' : 's'}.`,
+            isError: false
+          })
           void probeNewJobs(sanitized)
+        } else {
+          setQueueFeedback({
+            message: 'This file is not a saved video queue. Choose a queue JSON file.',
+            isError: true
+          })
         }
       }
     } catch (error) {
-      console.error('Failed to load queue', error)
+      setQueueFeedback({
+        message:
+          error instanceof SyntaxError
+            ? 'This queue file could not be read. Choose a valid queue JSON file.'
+            : error instanceof Error
+              ? error.message
+              : 'Could not load the queue.',
+        isError: true
+      })
+    } finally {
+      loadingQueue.current = false
+      setIsLoadingQueue(false)
     }
   }
 
@@ -176,6 +257,10 @@ export function useQueueManager(ffmpegPath: string | undefined) {
     maxConcurrency,
     setMaxConcurrency,
     isQueueOpen,
+    queueFeedback,
+    isLoadingQueue,
+    removedCount: removedJobs.length,
+    handleUndoRemove,
     setIsQueueOpen,
     enqueueFiles,
     handleFileSelect,

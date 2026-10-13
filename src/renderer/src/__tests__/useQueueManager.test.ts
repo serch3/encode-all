@@ -200,3 +200,132 @@ test('assigns unique job IDs when an imported queue repeats an ID', async () => 
   expect(result.current.queuedJobs).toHaveLength(2)
   expect(new Set(result.current.queuedJobs.map((job) => job.id)).size).toBe(2)
 })
+
+test('filtered selection preserves files outside the filter', async () => {
+  const { result } = renderHook(() => useQueueManager(undefined))
+  await act(async () => {
+    result.current.enqueueFiles([fileA, fileB, fileC])
+  })
+  const [first, second, third] = result.current.queuedJobs.map((job) => job.id)
+  act(() => {
+    result.current.handleClearSelection([second])
+  })
+  expect(result.current.selectedJobIds).toEqual([first, third])
+  act(() => {
+    result.current.handleSelectAll([second])
+  })
+  expect(new Set(result.current.selectedJobIds)).toEqual(new Set([first, second, third]))
+})
+
+test('duplicate imports give feedback and reopen the existing queue', async () => {
+  const { result } = renderHook(() => useQueueManager(undefined))
+  await act(async () => {
+    result.current.enqueueFiles([fileA])
+  })
+  act(() => {
+    result.current.setIsQueueOpen(false)
+  })
+  act(() => {
+    result.current.enqueueFiles([fileA])
+  })
+  expect(result.current.queuedJobs).toHaveLength(1)
+  expect(result.current.isQueueOpen).toBe(true)
+  expect(result.current.queueFeedback?.message).toContain('already in the queue')
+})
+
+test.each(['invalid JSON', '{}', '[]'])(
+  'invalid queue %s explains the problem and preserves existing files',
+  async (content) => {
+    mockWindowApi((api) => {
+      api.readTextFile.mockResolvedValue(content)
+    })
+    const { result } = renderHook(() => useQueueManager(undefined))
+    await act(async () => {
+      result.current.enqueueFiles([fileA])
+    })
+    await act(async () => {
+      await result.current.handleLoadQueue()
+    })
+    expect(result.current.queuedJobs[0].file).toEqual(fileA)
+    expect(result.current.queueFeedback?.isError).toBe(true)
+  }
+)
+
+test('canceling save shows no success and save failures remain visible', async () => {
+  const api = mockWindowApi((mock) => {
+    mock.saveTextFile.mockResolvedValue(false)
+  })
+  const { result } = renderHook(() => useQueueManager(undefined))
+  await act(async () => {
+    await result.current.handleSaveQueue([])
+  })
+  expect(result.current.queueFeedback).toBeNull()
+  api.saveTextFile.mockRejectedValue(new Error('Permission denied'))
+  await act(async () => {
+    await result.current.handleSaveQueue([])
+  })
+  expect(result.current.queueFeedback).toEqual({ message: 'Permission denied', isError: true })
+})
+
+test('Undo restores removed files in order and preserves their previous selection', async () => {
+  const { result } = renderHook(() => useQueueManager(undefined))
+  await act(async () => {
+    result.current.enqueueFiles([fileA, fileB, fileC])
+  })
+  const ids = result.current.queuedJobs.map((job) => job.id)
+  act(() => {
+    result.current.handleClearSelection([ids[2]])
+  })
+  act(() => {
+    result.current.handleRemoveJobs([ids[0], ids[2]])
+  })
+  expect(result.current.removedCount).toBe(2)
+  act(() => {
+    result.current.handleUndoRemove()
+  })
+  expect(result.current.queuedJobs.map((job) => job.file)).toEqual([fileA, fileB, fileC])
+  expect(new Set(result.current.selectedJobIds)).toEqual(new Set([ids[0], ids[1]]))
+  expect(result.current.removedCount).toBe(0)
+})
+
+test('Undo does not duplicate a removed video that was added again', async () => {
+  const { result } = renderHook(() => useQueueManager(undefined))
+  await act(async () => {
+    result.current.enqueueFiles([fileA])
+  })
+  act(() => {
+    result.current.handleRemoveJobs([result.current.queuedJobs[0].id])
+  })
+  await act(async () => {
+    result.current.enqueueFiles([fileA])
+  })
+  act(() => {
+    result.current.handleUndoRemove()
+  })
+  expect(result.current.queuedJobs).toHaveLength(1)
+})
+
+test('queue import exposes loading state and prevents overlapping imports', async () => {
+  let finish!: (content: string | null) => void
+  const api = mockWindowApi((mock) => {
+    mock.readTextFile.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        })
+    )
+  })
+  const { result } = renderHook(() => useQueueManager(undefined))
+  act(() => {
+    void result.current.handleLoadQueue()
+  })
+  expect(result.current.isLoadingQueue).toBe(true)
+  await act(async () => {
+    await result.current.handleLoadQueue()
+  })
+  expect(api.readTextFile).toHaveBeenCalledTimes(1)
+  await act(async () => {
+    finish(null)
+  })
+  expect(result.current.isLoadingQueue).toBe(false)
+})
