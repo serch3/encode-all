@@ -99,3 +99,31 @@ describe('FfmpegSetup', () => {
     expect(apiMock.checkFfmpeg).toHaveBeenCalledTimes(2)
   })
 })
+
+test('installs through the detected package manager and propagates the verified path', async () => {
+  const api = mockWindowApi((api) => {
+    api.getFfmpegInstaller.mockResolvedValue({ available: true, manager: 'winget' })
+    api.installFfmpeg.mockResolvedValue({
+      isInstalled: true,
+      path: 'C:/WinGet/ffmpeg.exe',
+      version: '8'
+    })
+  })
+  const onPathSelected = jest.fn()
+  renderWithProviders(<FfmpegSetup isOpen onClose={jest.fn()} onPathSelected={onPathSelected} />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Install FFmpeg' }))
+  await waitFor(() => expect(api.installFfmpeg).toHaveBeenCalledTimes(1))
+  expect(onPathSelected).toHaveBeenCalledWith('C:/WinGet/ffmpeg.exe')
+  expect(await screen.findByRole('button', { name: 'Continue' })).toBeEnabled()
+})
+
+test('reports installer failures and keeps manual setup available', async () => {
+  mockWindowApi((api) => {
+    api.getFfmpegInstaller.mockResolvedValue({ available: true, manager: 'brew' })
+    api.installFfmpeg.mockRejectedValue(new Error('Network unavailable'))
+  })
+  renderWithProviders(<FfmpegSetup isOpen onClose={jest.fn()} />)
+  await userEvent.click(await screen.findByRole('button', { name: 'Install FFmpeg' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Network unavailable')
+  expect(screen.getByText('Select Existing Installation')).toBeInTheDocument()
+})

@@ -37,6 +37,7 @@ function App(): React.JSX.Element {
   const [hasNvidiaGpu, setHasNvidiaGpu] = useState<boolean>(false)
   const [ffmpegPath, setFfmpegPath] = useState<string | undefined>(readSavedFfmpegPath)
   const [showProgressPage, setShowProgressPage] = useState<boolean>(false)
+  const [fileError, setFileError] = useState<string | null>(null)
 
   const config = useEncodingConfig()
   const queue = useQueueManager(ffmpegPath)
@@ -52,66 +53,58 @@ function App(): React.JSX.Element {
 
   const handleFfmpegPathSelected = (path: string): void => {
     setFfmpegPath(path)
-    localStorage.setItem(FFMPEG_PATH_STORAGE_KEY, path)
+    try {
+      localStorage.setItem(FFMPEG_PATH_STORAGE_KEY, path)
+    } catch (error) {
+      console.warn('Could not save FFmpeg path', error)
+    }
   }
 
-  // Check FFmpeg installation on startup
+  // Only an actual installation check can enable encoding.
   useEffect(() => {
-    const checkFFmpeg = async (): Promise<void> => {
-      const hasBeenChecked = localStorage.getItem('ffmpeg-checked')
-
-      // Always check for NVIDIA support if FFmpeg is checked or we are about to check it
-      const checkNvidia = async (): Promise<void> => {
-        try {
-          const nvidiaSupported = await window.api?.checkNvidiaSupport(ffmpegPath)
-          setHasNvidiaGpu(Boolean(nvidiaSupported))
-        } catch (e) {
-          console.error('Failed to check NVIDIA support', e)
-        }
-      }
-
+    let current = true
+    setFfmpegChecked(false)
+    setHasNvidiaGpu(false)
+    void (async () => {
       try {
-        const status = await window.api?.checkFfmpeg(ffmpegPath)
-        if (status?.path) {
-          setFfmpegPath(status.path)
-        }
-
-        if (!status?.isInstalled) {
-          if (!hasBeenChecked) {
-            setShowFfmpegSetup(true)
-          } else {
-            setFfmpegChecked(true)
-          }
+        let status = await window.api.checkFfmpeg(ffmpegPath)
+        if (!status.isInstalled && ffmpegPath) status = await window.api.checkFfmpeg()
+        if (!current) return
+        setFfmpegChecked(status.isInstalled)
+        if (status.isInstalled) {
+          if (status.path && status.path !== ffmpegPath) handleFfmpegPathSelected(status.path)
+          const supported = await window.api.checkNvidiaSupport(status.path ?? ffmpegPath)
+          if (current) setHasNvidiaGpu(supported)
         } else {
-          setFfmpegChecked(true)
-          if (!hasBeenChecked) localStorage.setItem('ffmpeg-checked', 'true')
-          void checkNvidia()
+          setShowFfmpegSetup(true)
         }
       } catch (error) {
-        // Log error and show setup modal as fallback
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-        console.error('Failed to check FFmpeg:', errorMessage)
-        if (!hasBeenChecked) setShowFfmpegSetup(true)
+        console.error('Failed to check FFmpeg:', error)
+        if (current) setShowFfmpegSetup(true)
       }
+    })()
+    return () => {
+      current = false
     }
-
-    void checkFFmpeg()
   }, [ffmpegPath])
 
-  // Handlers for FFmpeg setup modal
-  const handleFfmpegSetupClose = (): void => {
-    setShowFfmpegSetup(false)
-    setFfmpegChecked(true)
-    localStorage.setItem('ffmpeg-checked', 'true')
+  const handleFfmpegSetupClose = async (): Promise<void> => {
+    const status = await window.api.checkFfmpeg(ffmpegPath)
+    setFfmpegChecked(status.isInstalled)
+    if (status.isInstalled) {
+      if (status.path) handleFfmpegPathSelected(status.path)
+      setShowFfmpegSetup(false)
+    }
   }
 
   const handleFfmpegSetupSkip = (): void => {
     setShowFfmpegSetup(false)
-    setFfmpegChecked(true)
+    setFfmpegChecked(false)
   }
 
   const handleSelectFolder = async (): Promise<void> => {
     try {
+      setFileError(null)
       const folderPath = await window.api.selectFolder()
       if (folderPath) {
         const files = await window.api.readVideoFiles(folderPath)
@@ -119,7 +112,7 @@ function App(): React.JSX.Element {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to select folder'
-      console.error('Error selecting folder:', errorMessage)
+      setFileError(errorMessage)
     }
   }
 
@@ -219,6 +212,7 @@ function App(): React.JSX.Element {
                   <CardBody className="flex flex-col gap-4 p-0">
                     <div className="p-4 flex flex-col gap-4">
                       <ProfileManager
+                        isDisabled={session.isEncoding}
                         currentSettings={{
                           container: config.container,
                           videoCodec: config.videoCodec,
@@ -310,6 +304,20 @@ function App(): React.JSX.Element {
                           Preview: {getPreviewFilename()}
                         </div>
                       </div>
+                      {!ffmpegChecked && (
+                        <Button
+                          variant="flat"
+                          color="warning"
+                          onPress={() => setShowFfmpegSetup(true)}
+                        >
+                          Set up FFmpeg
+                        </Button>
+                      )}
+                      {fileError && (
+                        <p role="alert" className="text-sm text-danger">
+                          {fileError}
+                        </p>
+                      )}
                       <Button
                         color="primary"
                         className="w-full h-12 text-base font-semibold"
@@ -389,6 +397,7 @@ function App(): React.JSX.Element {
             onSelectLogDirectory={handleSelectLogFolder}
             ffmpegPath={ffmpegPath}
             onFfmpegPathSelected={handleFfmpegPathSelected}
+            onOpenFfmpegSetup={() => setShowFfmpegSetup(true)}
           />
         )}
         {active === 'about' && <AboutPage />}
@@ -405,10 +414,16 @@ function App(): React.JSX.Element {
         onClearSelection={queue.handleClearSelection}
         onRemoveJobs={queue.handleRemoveJobs}
         onEncode={() => {
+          if (!ffmpegChecked) {
+            setShowFfmpegSetup(!ffmpegChecked)
+            return
+          }
           queue.setIsQueueOpen(false)
+          setShowProgressPage(true)
           session.handleStartEncoding()
         }}
         isEncoding={session.isEncoding}
+        canEncode={ffmpegChecked}
         onSkipCurrent={session.handleSkipCurrent}
         onSaveQueue={queue.handleSaveQueue}
         onLoadQueue={queue.handleLoadQueue}

@@ -289,11 +289,19 @@ export default function EncodingSettings({
                     startContent={<SettingIcon className="w-5 h-5 text-default-400" />}
                     type="number"
                     value={crf.toString()}
-                    onChange={(e) => setCrf(parseInt(e.target.value) || 23)}
+                    min={0}
+                    max={videoCodec === 'libvpx-vp9' ? 63 : 51}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value)
+                      if (Number.isFinite(value))
+                        setCrf(Math.min(videoCodec === 'libvpx-vp9' ? 63 : 51, Math.max(0, value)))
+                    }}
                     description={
                       isNvenc
                         ? '1-51. Lower is better quality.'
-                        : '0-51. Lower is better quality. 18-28 is good.'
+                        : videoCodec === 'libvpx-vp9'
+                          ? '0-63. Lower is better quality.'
+                          : '0-51. Lower is better quality. 18-28 is good.'
                     }
                     isDisabled={isEncoding}
                   />

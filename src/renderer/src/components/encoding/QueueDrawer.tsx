@@ -51,6 +51,7 @@ interface QueueDrawerProps {
   onRemoveJobs?: (jobIds: string[]) => void
   onEncode?: () => void
   isEncoding?: boolean
+  canEncode?: boolean
   onSkipCurrent?: () => void
   onSaveQueue?: (jobs: QueuedJob[]) => void
   onLoadQueue?: () => void
@@ -79,6 +80,7 @@ export default function QueueDrawer({
   onRemoveJobs,
   onEncode,
   isEncoding,
+  canEncode = true,
   onSkipCurrent,
   onSaveQueue,
   onLoadQueue,
@@ -688,7 +690,12 @@ export default function QueueDrawer({
                 </Button>
               </Tooltip>
               <Tooltip content="Load queue from file">
-                <Button isIconOnly onPress={onLoadQueue}>
+                <Button
+                  isIconOnly
+                  aria-label="Load queue"
+                  onPress={onLoadQueue}
+                  isDisabled={isEncoding}
+                >
                   <Upload size={16} />
                 </Button>
               </Tooltip>
@@ -711,7 +718,12 @@ export default function QueueDrawer({
               Close
             </Button>
             {selectedJobIds.length > 0 && (
-              <Button color="primary" className="flex-1" onPress={onEncode} isDisabled={isEncoding}>
+              <Button
+                color="primary"
+                className="flex-1"
+                onPress={onEncode}
+                isDisabled={isEncoding || !canEncode}
+              >
                 {isEncoding
                   ? 'Encoding...'
                   : `Encode ${selectedJobIds.length} file${selectedJobIds.length !== 1 ? 's' : ''}`}

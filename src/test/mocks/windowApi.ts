@@ -5,11 +5,16 @@ import type {
   EncodingLogPayload,
   MediaInfo,
   EncodingOptions,
-  EncodingProgressPayload
+  EncodingProgressPayload,
+  FfmpegInstaller,
+  FfmpegStatus
 } from '../../preload/api.types'
 
 export type WindowApiMock = {
   getPathForFile: jest.Mock<string, [File]>
+  getFfmpegInstaller: jest.Mock<Promise<FfmpegInstaller>, []>
+  installFfmpeg: jest.Mock<Promise<FfmpegStatus>, []>
+  onFfmpegInstallLog: jest.Mock<() => void, [(log: string) => void]>
   selectFolder: jest.Mock<Promise<string | null>, []>
   readVideoFiles: jest.Mock<
     Promise<
@@ -62,6 +67,9 @@ const ensureWindowApi = (): CustomAPI => {
 
 const defaultWindowApiMock = (): WindowApiMock => ({
   getPathForFile: jest.fn().mockReturnValue('/videos/dropped.mp4'),
+  getFfmpegInstaller: jest.fn().mockResolvedValue({ available: false, manager: null }),
+  installFfmpeg: jest.fn().mockResolvedValue({ isInstalled: false }),
+  onFfmpegInstallLog: jest.fn().mockReturnValue(() => {}),
   selectFolder: jest.fn().mockResolvedValue(null),
   readVideoFiles: jest.fn().mockResolvedValue([]),
   checkFfmpeg: jest.fn().mockResolvedValue({ isInstalled: false }),

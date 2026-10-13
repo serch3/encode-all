@@ -5,7 +5,9 @@ import {
   EncodingLogPayload,
   EncodingCompletePayload,
   EncodingErrorPayload,
-  MediaInfo
+  MediaInfo,
+  CustomAPI,
+  FfmpegInstaller
 } from './api.types'
 
 type VideoFile = {
@@ -33,8 +35,15 @@ const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
   ipcRenderer.invoke(channel, ...args) as Promise<T>
 
 // Custom APIs for renderer
-const api = {
+const api: CustomAPI = {
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
+  getFfmpegInstaller: () => invoke<FfmpegInstaller>('get-ffmpeg-installer'),
+  installFfmpeg: () => invoke<FfmpegStatus>('install-ffmpeg'),
+  onFfmpegInstallLog: (callback: (log: string) => void): (() => void) => {
+    const subscription = (_event: IpcRendererEvent, log: string): void => callback(log)
+    ipcRenderer.on('ffmpeg-install-log', subscription)
+    return () => ipcRenderer.removeListener('ffmpeg-install-log', subscription)
+  },
   selectFolder: () => invoke<string | null>('select-folder'),
   readVideoFiles: (folderPath: string) => invoke<VideoFile[]>('read-video-files', folderPath),
   // FFmpeg-related APIs

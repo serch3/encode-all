@@ -14,6 +14,7 @@ import {
 import { useState, useEffect } from 'react'
 import { CheckCircle, AlertCircle, ExternalLink, Folder } from 'lucide-react'
 import type { FfmpegStatus } from '../../types'
+import type { FfmpegInstaller } from '../../../../preload/api.types'
 
 interface FfmpegSetupProps {
   isOpen: boolean
@@ -32,12 +33,54 @@ export default function FfmpegSetup({
 }: FfmpegSetupProps): React.JSX.Element {
   const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus>({ isInstalled: false })
   const [isChecking, setIsChecking] = useState(false)
+  const [installer, setInstaller] = useState<FfmpegInstaller | null>(null)
+  const [isInstalling, setIsInstalling] = useState(false)
+  const [installLog, setInstallLog] = useState('')
+  const [installError, setInstallError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    let current = true
+    void window.api
+      .getFfmpegInstaller()
+      .then((value) => {
+        if (current) setInstaller(value)
+      })
+      .catch(() => {
+        if (current) setInstaller(null)
+      })
+    const remove = window.api.onFfmpegInstallLog((log) =>
+      setInstallLog((value) => (value + log).slice(-8000))
+    )
+    return () => {
+      current = false
+      remove()
+    }
+  }, [isOpen])
+
+  const handleInstall = async (): Promise<void> => {
+    setIsInstalling(true)
+    setInstallError(null)
+    setInstallLog('Installing FFmpeg and FFprobe…\n')
+    try {
+      const status = await window.api.installFfmpeg()
+      setFfmpegStatus(status)
+      if (status.isInstalled && status.path) onPathSelected?.(status.path)
+      if (!status.isInstalled) setInstallError(status.error ?? 'Installation could not be verified')
+    } catch (error) {
+      setInstallError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setIsInstalling(false)
+    }
+  }
 
   const checkFfmpegStatus = async (path = ffmpegPath): Promise<void> => {
     setIsChecking(true)
     try {
       const status = await window.api?.checkFfmpeg(path)
       setFfmpegStatus(status)
+      if (status.isInstalled && status.path && status.path !== ffmpegPath)
+        onPathSelected?.(status.path)
     } catch (error) {
       setFfmpegStatus({
         isInstalled: false,
@@ -117,6 +160,7 @@ export default function FfmpegSetup({
             <p className="text-xs text-default-500">
               FFmpeg is required to encode videos. Please install it to continue.
             </p>
+            {ffmpegStatus.error && <p className="text-xs text-danger">{ffmpegStatus.error}</p>}
           </div>
         </CardBody>
       </Card>
@@ -133,11 +177,34 @@ export default function FfmpegSetup({
         <Divider className="my-4" />
         <div className="space-y-3">
           <h4 className="text-sm font-medium">Installation Options</h4>
+          {installer?.available && (
+            <Card>
+              <CardBody className="gap-2">
+                <p className="text-sm font-medium">
+                  Install with {installer.manager === 'winget' ? 'WinGet' : 'Homebrew'}
+                </p>
+                <p className="text-xs text-default-500">
+                  Installs FFmpeg and FFprobe through your package manager. Clicking Install accepts
+                  the package and source terms.
+                </p>
+                <Button
+                  color="primary"
+                  onPress={handleInstall}
+                  isLoading={isInstalling}
+                  isDisabled={isChecking}
+                >
+                  Install FFmpeg
+                </Button>
+              </CardBody>
+            </Card>
+          )}
+          {installer?.reason && <p className="text-xs text-default-500">{installer.reason}</p>}
 
           {/* Manual Download */}
           <Card
             className="hover:bg-content2 cursor-pointer"
             isPressable
+            isDisabled={isInstalling}
             onClick={handleOpenDownloadPage}
           >
             <CardBody className="flex flex-row items-center gap-3 py-3">
@@ -149,7 +216,7 @@ export default function FfmpegSetup({
                 </p>
               </div>
               <Chip size="sm" variant="flat" color="primary">
-                Recommended
+                Manual
               </Chip>
             </CardBody>
           </Card>
@@ -158,6 +225,7 @@ export default function FfmpegSetup({
           <Card
             className="hover:bg-content2 cursor-pointer"
             isPressable
+            isDisabled={isInstalling}
             onClick={handleSelectCustomPath}
           >
             <CardBody className="flex flex-row items-center gap-3 py-3">
@@ -178,7 +246,8 @@ export default function FfmpegSetup({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={isInstalling ? undefined : onClose}
+      hideCloseButton={isInstalling || !ffmpegStatus.isInstalled}
       isDismissable={false}
       isKeyboardDismissDisabled={true}
       size="md"
@@ -195,11 +264,24 @@ export default function FfmpegSetup({
         <ModalBody>
           {renderStatus()}
           {renderDownloadOptions()}
+          {installLog && (
+            <pre
+              aria-live="polite"
+              className="text-xs whitespace-pre-wrap max-h-32 overflow-auto rounded-lg bg-default-100 p-3"
+            >
+              {installLog}
+            </pre>
+          )}
+          {installError && (
+            <p role="alert" className="text-sm text-danger">
+              {installError}
+            </p>
+          )}
         </ModalBody>
 
         <ModalFooter>
           {onSkip && !ffmpegStatus.isInstalled && (
-            <Button variant="ghost" onPress={onSkip}>
+            <Button variant="ghost" onPress={onSkip} isDisabled={isInstalling}>
               Skip for now
             </Button>
           )}
@@ -208,6 +290,7 @@ export default function FfmpegSetup({
             color="primary"
             onPress={ffmpegStatus.isInstalled ? onClose : () => void checkFfmpegStatus()}
             isLoading={isChecking}
+            isDisabled={isInstalling}
           >
             {ffmpegStatus.isInstalled ? 'Continue' : 'Check Again'}
           </Button>

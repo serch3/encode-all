@@ -20,6 +20,7 @@ interface ProfileManagerProps {
   onLoadProfile: (profile: EncodingProfile) => void
   onSaveProfile: (profile: EncodingProfile) => void
   onDeleteProfile: (id: string) => void
+  isDisabled?: boolean
 }
 
 export default function ProfileManager({
@@ -27,7 +28,8 @@ export default function ProfileManager({
   profiles,
   onLoadProfile,
   onSaveProfile,
-  onDeleteProfile
+  onDeleteProfile,
+  isDisabled = false
 }: ProfileManagerProps): React.JSX.Element {
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false)
   const [newProfileName, setNewProfileName] = useState('')
@@ -36,7 +38,7 @@ export default function ProfileManager({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleProfileChange = (keys: any): void => {
     const id = Array.from(keys)[0] as string
-    if (!id) return
+    if (!id || isDisabled) return
 
     setSelectedProfileId(id)
     const profile = profiles.find((p) => p.id === id)
@@ -75,6 +77,7 @@ export default function ProfileManager({
         className="flex-1"
         selectedKeys={selectedProfileId ? [selectedProfileId] : []}
         onSelectionChange={handleProfileChange}
+        isDisabled={isDisabled}
         startContent={<Bookmark className="w-5 h-5 text-default-400" />}
       >
         {profiles.map((profile) => (
@@ -86,7 +89,13 @@ export default function ProfileManager({
 
       <div className="flex gap-1 h-14 items-center pt-2">
         <Tooltip content="Save current settings as profile">
-          <Button isIconOnly variant="flat" onPress={() => setIsSaveModalOpen(true)}>
+          <Button
+            isIconOnly
+            aria-label="Save current settings as profile"
+            variant="flat"
+            onPress={() => setIsSaveModalOpen(true)}
+            isDisabled={isDisabled}
+          >
             <Save className="w-5 h-5" />
           </Button>
         </Tooltip>
@@ -96,7 +105,8 @@ export default function ProfileManager({
             isIconOnly
             color="danger"
             variant="flat"
-            isDisabled={!selectedProfileId}
+            isDisabled={!selectedProfileId || isDisabled}
+            aria-label="Delete selected profile"
             onPress={handleDelete}
           >
             <Trash2 className="w-5 h-5" />

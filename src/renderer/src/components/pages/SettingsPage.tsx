@@ -20,6 +20,7 @@ interface SettingsProps {
   onSelectLogDirectory: () => void
   ffmpegPath?: string
   onFfmpegPathSelected?: (path: string) => void
+  onOpenFfmpegSetup?: () => void
 }
 
 export default function SettingsPage({
@@ -31,7 +32,8 @@ export default function SettingsPage({
   logDirectory,
   onSelectLogDirectory,
   ffmpegPath,
-  onFfmpegPathSelected
+  onFfmpegPathSelected,
+  onOpenFfmpegSetup
 }: SettingsProps): React.JSX.Element {
   // FFmpeg status state
   const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus>({ isInstalled: false })
@@ -162,6 +164,9 @@ export default function SettingsPage({
               <Button size="sm" variant="flat" onPress={handleSelectFfmpegPath}>
                 Select Custom Path
               </Button>
+              <Button size="sm" variant="flat" onPress={onOpenFfmpegSetup}>
+                FFmpeg Setup
+              </Button>
               <Button
                 size="sm"
                 variant="flat"
@@ -191,6 +196,7 @@ export default function SettingsPage({
                   size="sm"
                   variant="ghost"
                   isIconOnly
+                  aria-label="Check FFmpeg installation"
                   onPress={checkNvidiaStatus}
                   isLoading={isCheckingNvidia}
                   isDisabled={!ffmpegStatus.isInstalled}

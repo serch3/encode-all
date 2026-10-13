@@ -30,7 +30,7 @@ describe('App FFmpeg integration', () => {
     expect(screen.getByText(/FFmpeg not found/i)).toBeInTheDocument()
   })
 
-  test('skip sets ffmpegChecked true and hides modal', async () => {
+  test('skip hides setup while encoding remains disabled', async () => {
     mockWindowApi((api) => {
       api.checkFfmpeg.mockResolvedValue({ isInstalled: false })
     })
@@ -41,7 +41,9 @@ describe('App FFmpeg integration', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Skip for now/i }))
 
     await waitFor(() => {
-      expect(screen.queryByText(/FFmpeg Setup/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/^FFmpeg Setup$/i)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Start Encoding' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Set up FFmpeg' })).toBeEnabled()
     })
   })
 

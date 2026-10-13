@@ -26,6 +26,9 @@ export interface MediaInfo {
 
 export interface CustomAPI {
   getPathForFile: (file: File) => string
+  getFfmpegInstaller: () => Promise<FfmpegInstaller>
+  installFfmpeg: () => Promise<FfmpegStatus>
+  onFfmpegInstallLog: (callback: (log: string) => void) => () => void
   selectFolder: () => Promise<string | null>
   readVideoFiles: (folderPath: string) => Promise<
     Array<{
