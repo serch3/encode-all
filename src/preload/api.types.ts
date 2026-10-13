@@ -25,6 +25,7 @@ export interface MediaInfo {
 }
 
 export interface CustomAPI {
+  getPathForFile: (file: File) => string
   selectFolder: () => Promise<string | null>
   readVideoFiles: (folderPath: string) => Promise<
     Array<{

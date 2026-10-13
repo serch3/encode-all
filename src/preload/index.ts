@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import {
   EncodingOptions,
   EncodingProgressPayload,
@@ -23,10 +23,6 @@ type FfmpegStatus = {
 }
 
 const electronAPI = {
-  ipcRenderer: {
-    invoke: (channel: string, ...args: unknown[]): Promise<unknown> =>
-      ipcRenderer.invoke(channel, ...args)
-  },
   process: {
     platform: process.platform,
     versions: process.versions
@@ -38,6 +34,7 @@ const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
 
 // Custom APIs for renderer
 const api = {
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   selectFolder: () => invoke<string | null>('select-folder'),
   readVideoFiles: (folderPath: string) => invoke<VideoFile[]>('read-video-files', folderPath),
   // FFmpeg-related APIs

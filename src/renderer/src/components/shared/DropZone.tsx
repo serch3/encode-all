@@ -3,7 +3,18 @@ import { Button, Chip } from '@heroui/react'
 import { UploadCloud, FolderOpen, History, ListVideo } from 'lucide-react'
 import type { VideoFile } from '../../types'
 
-const VALID_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v', '.ts']
+const VALID_EXTENSIONS = [
+  '.mp4',
+  '.mkv',
+  '.avi',
+  '.mov',
+  '.webm',
+  '.flv',
+  '.wmv',
+  '.m4v',
+  '.ts',
+  '.3gp'
+]
 const ACCEPTED_FORMATS = ['MP4', 'MKV', 'AVI', 'MOV', 'WebM', 'TS']
 
 interface DropZoneProps {
@@ -51,10 +62,11 @@ export function DropZone({
       })
       .map((file) => ({
         name: file.name,
-        path: (file as unknown as { path: string }).path,
+        path: window.api.getPathForFile(file),
         size: file.size,
         modified: file.lastModified
       }))
+      .filter((file) => Boolean(file.path))
 
     onFilesDropped(newVideoFiles)
   }

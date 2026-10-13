@@ -9,6 +9,7 @@ import type {
 } from '../../preload/api.types'
 
 export type WindowApiMock = {
+  getPathForFile: jest.Mock<string, [File]>
   selectFolder: jest.Mock<Promise<string | null>, []>
   readVideoFiles: jest.Mock<
     Promise<
@@ -60,6 +61,7 @@ const ensureWindowApi = (): CustomAPI => {
 }
 
 const defaultWindowApiMock = (): WindowApiMock => ({
+  getPathForFile: jest.fn().mockReturnValue('/videos/dropped.mp4'),
   selectFolder: jest.fn().mockResolvedValue(null),
   readVideoFiles: jest.fn().mockResolvedValue([]),
   checkFfmpeg: jest.fn().mockResolvedValue({ isInstalled: false }),
