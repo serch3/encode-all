@@ -5,7 +5,8 @@ import { writeFileSync, readFileSync, type Dirent, type Stats } from 'fs'
 import { readdir, stat } from 'fs/promises'
 import icon from '../../resources/icon.png?asset'
 import { startEncoding, cancelEncoding } from './ffmpeg'
-import { EncodingOptions, PreviewOptions } from '../preload/api.types'
+import { EncodingOptions, PreviewOptions, BatchReviewRequest } from '../preload/api.types'
+import { reviewBatchOutputs } from './batchReview'
 import {
   checkFfmpegInstallation,
   checkNvidiaSupport,
@@ -20,6 +21,7 @@ import {
   cancelPreview,
   releasePreview,
   openPreview,
+  openPreviewWindow,
   previewResponse,
   cleanupPreviews
 } from './preview'
@@ -152,6 +154,14 @@ app.whenReady().then(() => {
   ipcMain.handle('cancel-preview', cancelPreview)
   ipcMain.handle('release-preview', (_, id: string) => releasePreview(id))
   ipcMain.handle('open-preview', (_, id: string) => openPreview(id))
+  ipcMain.handle('open-preview-window', async (event, id: string) => {
+    const parent = BrowserWindow.fromWebContents(event.sender)
+    if (!parent) throw new Error('The preview workspace is unavailable.')
+    await openPreviewWindow(id, parent)
+  })
+  ipcMain.handle('review-batch-outputs', (_, request: BatchReviewRequest) =>
+    reviewBatchOutputs(request)
+  )
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.serch3.encode-all')
 

@@ -33,6 +33,8 @@ export interface CustomAPI {
   cancelPreview: () => Promise<void>
   releasePreview: (id: string) => Promise<void>
   openPreview: (id: string) => Promise<void>
+  openPreviewWindow: (id: string) => Promise<void>
+  reviewBatchOutputs: (request: BatchReviewRequest) => Promise<BatchReviewEntry[]>
   selectFolder: () => Promise<string | null>
   readVideoFiles: (folderPath: string) => Promise<
     Array<{
@@ -90,6 +92,22 @@ export interface PreviewResult {
   url: string
   size: number
   durationSeconds: number
+}
+
+export interface BatchReviewRequest {
+  jobs: Array<{ jobId: string; name: string; encoding: EncodingOptions }>
+  sourcePaths: string[]
+  supportedNvidiaEncoders?: string[]
+}
+
+export interface BatchReviewEntry {
+  jobId: string
+  name: string
+  inputPath: string
+  outputPath: string
+  encoding: EncodingOptions
+  errors: string[]
+  warnings: string[]
 }
 
 export interface EncodingOptions {

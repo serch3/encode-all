@@ -9,7 +9,9 @@ import type {
   FfmpegInstaller,
   FfmpegStatus,
   PreviewOptions,
-  PreviewResult
+  PreviewResult,
+  BatchReviewRequest,
+  BatchReviewEntry
 } from '../../preload/api.types'
 
 export type WindowApiMock = {
@@ -21,6 +23,8 @@ export type WindowApiMock = {
   cancelPreview: jest.Mock<Promise<void>, []>
   releasePreview: jest.Mock<Promise<void>, [string]>
   openPreview: jest.Mock<Promise<void>, [string]>
+  openPreviewWindow: jest.Mock<Promise<void>, [string]>
+  reviewBatchOutputs: jest.Mock<Promise<BatchReviewEntry[]>, [BatchReviewRequest]>
   selectFolder: jest.Mock<Promise<string | null>, []>
   readVideoFiles: jest.Mock<
     Promise<
@@ -86,6 +90,18 @@ const defaultWindowApiMock = (): WindowApiMock => ({
   cancelPreview: jest.fn().mockResolvedValue(undefined),
   releasePreview: jest.fn().mockResolvedValue(undefined),
   openPreview: jest.fn().mockResolvedValue(undefined),
+  openPreviewWindow: jest.fn().mockResolvedValue(undefined),
+  reviewBatchOutputs: jest.fn().mockImplementation(async (request: BatchReviewRequest) =>
+    request.jobs.map((job) => ({
+      jobId: job.jobId,
+      name: job.name,
+      inputPath: job.encoding.inputPath,
+      outputPath: job.encoding.outputPath,
+      encoding: job.encoding,
+      errors: [],
+      warnings: []
+    }))
+  ),
   selectFolder: jest.fn().mockResolvedValue(null),
   readVideoFiles: jest.fn().mockResolvedValue([]),
   checkFfmpeg: jest.fn().mockResolvedValue({ isInstalled: false }),

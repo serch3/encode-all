@@ -1,11 +1,41 @@
-import { createPreview, cancelPreview, cleanupPreviews, validatePreviewRange } from '../preview'
+import {
+  createPreview,
+  cancelPreview,
+  cleanupPreviews,
+  validatePreviewRange,
+  openPreviewWindow,
+  releasePreview
+} from '../preview'
+import { BrowserWindow } from 'electron'
 import { startEncoding, cancelEncoding } from '../ffmpeg'
 import { runBinary } from '../ffmpegSetup'
 import { mkdtemp, rm } from 'fs/promises'
 import { join } from 'path'
 import type { EncodingOptions } from '../../preload/api.types'
 
-jest.mock('electron', () => ({ app: { getPath: () => '/tmp' }, net: {}, shell: {} }))
+jest.mock('electron', () => ({
+  app: { getPath: () => '/tmp' },
+  net: {},
+  shell: {},
+  BrowserWindow: jest.fn().mockImplementation(() => {
+    let destroyed = false
+    let closed: (() => void) | undefined
+    return {
+      isDestroyed: () => destroyed,
+      show: jest.fn(),
+      focus: jest.fn(),
+      loadURL: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn(() => {
+        destroyed = true
+        closed?.()
+      }),
+      on: jest.fn((event, callback) => {
+        if (event === 'closed') closed = callback
+      }),
+      webContents: { on: jest.fn(), setWindowOpenHandler: jest.fn() }
+    }
+  })
+}))
 jest.mock('../ffmpeg', () => ({ startEncoding: jest.fn(), cancelEncoding: jest.fn() }))
 jest.mock('../ffmpegSetup', () => ({
   runBinary: jest.fn(),
@@ -114,4 +144,28 @@ test('cancels only the preview job and waits for process completion before clean
   await cancellation
   await rejected
   expect(rm).toHaveBeenCalled()
+})
+
+test('opens only registered clips in a sandboxed player and reuses its window', async () => {
+  const clip = await createPreview({ encoding, startSeconds: 0, durationSeconds: 10 }, {} as never)
+  await openPreviewWindow(clip.id, {} as never)
+  await openPreviewWindow(clip.id, {} as never)
+  expect(BrowserWindow).toHaveBeenCalledTimes(1)
+  expect(BrowserWindow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
+    })
+  )
+  const player = (BrowserWindow as unknown as jest.Mock).mock.results[0].value
+  const html = decodeURIComponent(player.loadURL.mock.calls[0][0].split(',')[1])
+  expect(html).toContain(clip.url)
+  expect(html).toContain("script-src 'none'")
+  expect(player.focus).toHaveBeenCalledTimes(1)
+  await releasePreview(clip.id)
+  expect(player.destroy).toHaveBeenCalled()
+})
+
+test('does not open a window for an expired or arbitrary clip', async () => {
+  await expect(openPreviewWindow('../source.mp4', {} as never)).rejects.toThrow('expired')
+  expect(BrowserWindow).not.toHaveBeenCalled()
 })

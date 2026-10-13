@@ -9,7 +9,9 @@ import {
   CustomAPI,
   FfmpegInstaller,
   PreviewOptions,
-  PreviewResult
+  PreviewResult,
+  BatchReviewRequest,
+  BatchReviewEntry
 } from './api.types'
 
 type VideoFile = {
@@ -50,6 +52,9 @@ const api: CustomAPI = {
   cancelPreview: () => invoke<void>('cancel-preview'),
   releasePreview: (id: string) => invoke<void>('release-preview', id),
   openPreview: (id: string) => invoke<void>('open-preview', id),
+  openPreviewWindow: (id: string) => invoke<void>('open-preview-window', id),
+  reviewBatchOutputs: (request: BatchReviewRequest) =>
+    invoke<BatchReviewEntry[]>('review-batch-outputs', request),
   selectFolder: () => invoke<string | null>('select-folder'),
   readVideoFiles: (folderPath: string) => invoke<VideoFile[]>('read-video-files', folderPath),
   // FFmpeg-related APIs

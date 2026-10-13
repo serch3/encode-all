@@ -1,4 +1,4 @@
-import { app, shell, type BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { mkdtemp, rm, stat } from 'fs/promises'
 import { createReadStream } from 'fs'
 import { join, extname } from 'path'
@@ -10,6 +10,7 @@ import type { PreviewOptions, PreviewResult } from '../preload/api.types'
 import { parseByteRange } from './mediaRange'
 
 const previews = new Map<string, { path: string; directory: string }>()
+const previewWindows = new Map<string, BrowserWindow>()
 type ActivePreview = { id: string; canceled: boolean; done?: Promise<void> }
 let active: ActivePreview | undefined
 
@@ -120,6 +121,9 @@ export async function cancelPreview(): Promise<void> {
 export async function releasePreview(id: string): Promise<void> {
   const preview = previews.get(id)
   if (!preview) return
+  const player = previewWindows.get(id)
+  if (player && !player.isDestroyed()) player.destroy()
+  previewWindows.delete(id)
   previews.delete(id)
   try {
     await rm(preview.directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
@@ -134,6 +138,42 @@ export async function openPreview(id: string): Promise<void> {
   if (!preview) throw new Error('Preview has expired. Generate a new sample.')
   const error = await shell.openPath(preview.path)
   if (error) throw new Error(error)
+}
+
+export async function openPreviewWindow(id: string, parent: BrowserWindow): Promise<void> {
+  if (!previews.has(id)) throw new Error('Preview has expired. Generate a new sample.')
+  const existing = previewWindows.get(id)
+  if (existing && !existing.isDestroyed()) {
+    existing.show()
+    existing.focus()
+    return
+  }
+  const player = new BrowserWindow({
+    parent,
+    title: 'Quality Preview — Encode All',
+    width: 960,
+    height: 640,
+    minWidth: 480,
+    minHeight: 320,
+    backgroundColor: '#09090b',
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false }
+  })
+  previewWindows.set(id, player)
+  player.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  player.webContents.on('will-navigate', (event) => event.preventDefault())
+  player.on('closed', () => previewWindows.delete(id))
+  const url = `encode-preview://clip/${encodeURIComponent(id)}`
+  const html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; media-src encode-preview:; style-src 'unsafe-inline'; script-src 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Quality Preview</title><style>html,body{margin:0;height:100%;background:#09090b;color:#d4d4d8;font-family:system-ui}body{display:flex;flex-direction:column}video{display:block;width:100%;flex:1;min-height:0;object-fit:contain}p{margin:0;padding:12px 16px;font-size:12px;color:#a1a1aa}</style></head><body><video controls preload="auto" aria-label="Encoded quality preview" src="${url}"></video><p>Use the playback controls or fullscreen to inspect the sample. If this format cannot play here, use Open in System Player in the Preview tab.</p></body></html>`
+  try {
+    await player.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+    player.show()
+  } catch (error) {
+    previewWindows.delete(id)
+    if (!player.isDestroyed()) player.destroy()
+    throw error
+  }
 }
 
 export async function previewResponse(request: Request): Promise<Response> {
