@@ -1,15 +1,15 @@
 <div align="center">
   <img src="resources/icon.png" alt="Encode-All Logo" width="120" height="120">
-  
-  # Encode-All
-  
-  **A Modern FFmpeg GUI for Bulk Video Encoding**
-  
-  [![Electron](https://img.shields.io/badge/Electron-42.3.0-47848F?style=flat&logo=electron&logoColor=white)](https://www.electronjs.org/)
-  [![React](https://img.shields.io/badge/React-19.1.0-61DAFB?style=flat&logo=react&logoColor=white)](https://reactjs.org/)
-  [![TypeScript](https://img.shields.io/badge/TypeScript-5.8.3-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-  [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.1.13-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-  [![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](LICENSE)
+
+# Encode-All
+
+**A Modern FFmpeg GUI for Bulk Video Encoding**
+
+[![Electron](https://img.shields.io/badge/Electron-44.7.0-47848F?style=flat&logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![React](https://img.shields.io/badge/React-19.3.0-61DAFB?style=flat&logo=react&logoColor=white)](https://reactjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.3.3-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat)](LICENSE)
 
 [Features](#features) • [Installation](#installation) • [Development](#development) • [Release](#release) • [Tech Stack](#tech-stack)
 
@@ -32,6 +32,7 @@
 
 - **Modern UI & Themes** – Sleek design with light/dark mode
 - **Live Feedback** – FFmpeg command preview and real-time progress
+- **Quality Preview** – Encode 1–30 seconds with the selected settings and per-file overrides before starting a batch; play the sample in the app or your system player
 
 ### Encoding Configuration
 
@@ -41,6 +42,7 @@
 ### Technical Features
 
 - **FFmpeg Auto-Detection** – Automatically tries to locate FFmpeg on the system for seamless operation.
+- **Guided FFmpeg Installation** – Install FFmpeg and FFprobe using WinGet on Windows or an existing Homebrew installation on macOS, with live installation logs
 
 ## Installation
 
@@ -50,11 +52,33 @@ Download the latest installer for your operating system from the
 Encode-All requires FFmpeg and FFprobe to encode and inspect media. If they are
 available on your system `PATH`, the app detects them automatically. You can also
 select a custom FFmpeg executable from Settings. FFprobe should live next to the
-selected FFmpeg binary.
+selected FFmpeg binary. The setup dialog verifies both tools before enabling encoding.
+
+Windows x64 is the primary release target. The assisted installer defaults to a
+per-user installation and lets you choose its folder; the app runs without
+requesting administrator privileges.
+
+On Windows, **Install FFmpeg** uses WinGet’s `Gyan.FFmpeg` package in user scope.
+WinGet requires Microsoft App Installer. On macOS, the same button uses an
+existing Homebrew installation. The app searches common installation locations
+after installing, so it can use FFmpeg without restarting to refresh PATH.
+
+On Linux, install FFmpeg with your distribution’s package manager. Examples:
+`sudo apt install ffmpeg` on Debian/Ubuntu or `sudo pacman -S ffmpeg` on Arch.
+Fedora’s `ffmpeg-free` package may need additional repositories for some codecs.
+
+Add and select videos, then use **Quality Preview** to choose a file, start time,
+and duration up to 30 seconds. The sample uses the file’s effective encoding
+settings, including queue overrides. Stream copy preserves original quality,
+so choose an encoder to preview compression. Embedded playback depends on the
+selected codec/container; **Open in System Player** opens the actual sample
+when the app’s player cannot play it. Samples use temporary storage.
 
 ## Development
 
 ### Setup
+
+Use Node.js 22.12 or newer.
 
 ```bash
 # Clone the repository
@@ -83,6 +107,17 @@ npm run test:watch
 
 # Generate coverage report
 npm run test:coverage
+
+# Verify actual H.264 preview and H.265/VP9 two-pass encodes
+# Requires FFmpeg and FFprobe on PATH, or FFMPEG_PATH / FFPROBE_PATH
+npm run test:ffmpeg
+
+# Native Windows discovery, Unicode paths, and GPU codec checks
+npm run test:windows
+
+# Native Windows app playback, streaming, cleanup, and cancellation
+# Requires a production build and FFmpeg/FFprobe
+npm run test:windows:app
 ```
 
 ### Building
@@ -105,17 +140,20 @@ Release builds are created by the GitHub Actions workflow in
 
 ```bash
 # Create and push a version tag
-git tag v0.7.0
-git push origin v0.7.0
+git tag v0.9.0
+git push origin v0.9.0
 ```
 
-The workflow builds Windows, macOS, and Linux artifacts, uploads them to a draft
-GitHub release, and generates release notes. Review the draft release before
-publishing it publicly.
+The workflow builds Windows, macOS, and Linux artifacts, uploads them to a
+GitHub prerelease, and generates release notes. macOS DMG/ZIP builds are universal
+and support Intel and Apple Silicon.
 
 Windows and macOS artifacts are unsigned unless signing credentials are provided
 to Electron Builder through repository secrets. Unsigned builds are useful for
 testing, but public releases should be signed before publishing.
+
+See [the app audit](docs/AUDIT.md) for implemented fixes, validation, dependency
+findings, platform limitations, and prioritized UX improvements.
 
 ## Tech Stack
 
