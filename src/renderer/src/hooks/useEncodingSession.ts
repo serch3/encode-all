@@ -127,7 +127,7 @@ export function useEncodingSession({
     return () => clearInterval(interval)
   }, [isEncoding, queueStartTime, overallProgress])
 
-  const processQueue = async (): Promise<void> => {
+  const processQueue = async (reviewedOutputPaths?: Record<string, string>): Promise<void> => {
     const {
       container,
       videoCodec,
@@ -241,7 +241,8 @@ export function useEncodingSession({
           targetDir = await window.api.pathJoin(file.path, '..')
         }
 
-        const outputPath = await window.api.pathJoin(targetDir, finalFilename)
+        const outputPath =
+          reviewedOutputPaths?.[job.id] ?? (await window.api.pathJoin(targetDir, finalFilename))
         if (!isEncodingRef.current || skippedJobIdsRef.current.has(job.id)) {
           throw new Error('Encoding canceled')
         }
@@ -435,9 +436,9 @@ export function useEncodingSession({
     isEncodingRef.current = false
   }
 
-  const handleStartEncoding = (): void => {
+  const handleStartEncoding = (reviewedOutputPaths?: Record<string, string>): void => {
     if (selectedJobIds.length === 0 || isEncodingRef.current) return
-    void processQueue()
+    void processQueue(reviewedOutputPaths)
   }
 
   const handleCancelEncoding = async (): Promise<void> => {
