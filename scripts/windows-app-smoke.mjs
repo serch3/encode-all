@@ -72,16 +72,32 @@ app.whenReady().then(async () => {
       throw new Error('Preview byte-range streaming failed')
     const playback = await window.webContents.executeJavaScript(`new Promise((resolve, reject) => {
       const video = document.createElement('video')
+      video.preload = 'auto'
+      video.muted = true
       video.src = ${JSON.stringify(preview.url)}
-      video.onloadedmetadata = () => {
-        const result = { duration: video.duration, width: video.videoWidth }
-        video.pause(); video.removeAttribute('src'); video.load(); video.remove()
-        resolve(result)
+      video.onloadeddata = async () => {
+        video.onloadeddata = null
+        try {
+          await video.play()
+          await new Promise((done) => setTimeout(done, 500))
+          if (video.currentTime <= 0) throw new Error('Preview playback clock did not advance')
+          video.pause()
+          const sought = new Promise((done) => { video.onseeked = done })
+          video.currentTime = 1
+          await sought
+          const result = { duration: video.duration, width: video.videoWidth, seekTime: video.currentTime }
+          video.removeAttribute('src'); video.load(); video.remove()
+          resolve(result)
+        } catch (error) { reject(error) }
       }
       video.onerror = () => reject(new Error('Preview playback failed: ' + video.error.message))
       document.body.append(video)
     })`)
-    if (playback.width !== 160 || Math.abs(playback.duration - 2) > 0.1)
+    if (
+      playback.width !== 160 ||
+      Math.abs(playback.duration - 2) > 0.1 ||
+      Math.abs(playback.seekTime - 1) > 0.1
+    )
       throw new Error('Preview media metadata is incorrect')
     await window.webContents.executeJavaScript(
       `window.api.releasePreview(${JSON.stringify(preview.id)})`
