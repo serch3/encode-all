@@ -1,11 +1,13 @@
-import { app, net, shell, type BrowserWindow } from 'electron'
+import { app, shell, type BrowserWindow } from 'electron'
 import { mkdtemp, rm, stat } from 'fs/promises'
-import { join } from 'path'
-import { pathToFileURL } from 'url'
+import { createReadStream } from 'fs'
+import { join, extname } from 'path'
+import { Readable } from 'stream'
 import { randomUUID } from 'crypto'
 import { startEncoding, cancelEncoding } from './ffmpeg'
 import { runBinary, resolveFfprobePath } from './ffmpegSetup'
 import type { PreviewOptions, PreviewResult } from '../preload/api.types'
+import { parseByteRange } from './mediaRange'
 
 const previews = new Map<string, { path: string; directory: string }>()
 type ActivePreview = { id: string; canceled: boolean; done?: Promise<void> }
@@ -139,11 +141,34 @@ export async function previewResponse(request: Request): Promise<Response> {
   const preview = url.hostname === 'clip' ? previews.get(url.pathname.slice(1)) : undefined
   if (!preview || !['GET', 'HEAD'].includes(request.method))
     return new Response(null, { status: 404 })
-  // Only generated, registered files are exposed; renderer paths are never accepted.
-  return net.fetch(pathToFileURL(preview.path).toString(), {
-    method: request.method,
-    headers: request.headers
+  // Only registered clips are exposed. Electron's file fetch ignores Range headers,
+  // so serve explicit byte ranges for media seeking on Windows and other platforms.
+  const { size } = await stat(preview.path)
+  const requestedRange = request.headers.get('range')
+  const range = requestedRange ? parseByteRange(requestedRange, size) : null
+  if (requestedRange && !range) {
+    return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } })
+  }
+  const types: Record<string, string> = {
+    '.mp4': 'video/mp4',
+    '.mov': 'video/quicktime',
+    '.webm': 'video/webm',
+    '.mkv': 'video/x-matroska'
+  }
+  const headers = new Headers({
+    'Content-Type': types[extname(preview.path)] ?? 'application/octet-stream',
+    'Accept-Ranges': 'bytes',
+    'Content-Length': String(range ? range.end - range.start + 1 : size),
+    'Cache-Control': 'no-store'
   })
+  if (range) headers.set('Content-Range', `bytes ${range.start}-${range.end}/${size}`)
+  const body =
+    request.method === 'HEAD' || size === 0
+      ? null
+      : (Readable.toWeb(
+          createReadStream(preview.path, range ?? undefined)
+        ) as ReadableStream<Uint8Array>)
+  return new Response(body, { status: range ? 206 : 200, headers })
 }
 
 export async function cleanupPreviews(): Promise<void> {
