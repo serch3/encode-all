@@ -36,6 +36,8 @@ function App(): React.JSX.Element {
   const [showFfmpegSetup, setShowFfmpegSetup] = useState<boolean>(false)
   const [ffmpegChecked, setFfmpegChecked] = useState<boolean>(false)
   const [hasNvidiaGpu, setHasNvidiaGpu] = useState<boolean>(false)
+  const [supportedNvidiaEncoders, setSupportedNvidiaEncoders] = useState<string[] | undefined>()
+  const [isCheckingHardware, setIsCheckingHardware] = useState(true)
   const [ffmpegPath, setFfmpegPath] = useState<string | undefined>(readSavedFfmpegPath)
   const [showProgressPage, setShowProgressPage] = useState<boolean>(false)
   const [previewBusy, setPreviewBusy] = useState(false)
@@ -67,6 +69,8 @@ function App(): React.JSX.Element {
     let current = true
     setFfmpegChecked(false)
     setHasNvidiaGpu(false)
+    setSupportedNvidiaEncoders(undefined)
+    setIsCheckingHardware(true)
     void (async () => {
       try {
         let status = await window.api.checkFfmpeg(ffmpegPath)
@@ -75,14 +79,19 @@ function App(): React.JSX.Element {
         setFfmpegChecked(status.isInstalled)
         if (status.isInstalled) {
           if (status.path && status.path !== ffmpegPath) handleFfmpegPathSelected(status.path)
-          const supported = await window.api.checkNvidiaSupport(status.path ?? ffmpegPath)
-          if (current) setHasNvidiaGpu(supported)
+          const supported = await window.api.getSupportedNvidiaEncoders(status.path ?? ffmpegPath)
+          if (current) {
+            setSupportedNvidiaEncoders(supported)
+            setHasNvidiaGpu(supported.length > 0)
+          }
         } else {
           setShowFfmpegSetup(true)
         }
       } catch (error) {
         console.error('Failed to check FFmpeg:', error)
         if (current) setShowFfmpegSetup(true)
+      } finally {
+        if (current) setIsCheckingHardware(false)
       }
     })()
     return () => {
@@ -173,6 +182,7 @@ function App(): React.JSX.Element {
 
   const isNvenc = config.videoCodec.includes('nvenc')
   const selectedJobs = queue.queuedJobs.filter((job) => queue.selectedJobIds.includes(job.id))
+  const encoderReady = ffmpegChecked && !isCheckingHardware
 
   return (
     <>
@@ -268,6 +278,8 @@ function App(): React.JSX.Element {
                         setSubtitleMode={config.setSubtitleMode}
                         isEncoding={session.isEncoding || previewBusy}
                         hasNvidiaGpu={hasNvidiaGpu}
+                        supportedNvidiaEncoders={supportedNvidiaEncoders}
+                        isCheckingHardware={isCheckingHardware}
                         isNvenc={isNvenc}
                       />
                     </div>
@@ -324,7 +336,7 @@ function App(): React.JSX.Element {
                         color="primary"
                         className="w-full h-12 text-base font-semibold"
                         isDisabled={
-                          !ffmpegChecked ||
+                          !encoderReady ||
                           selectedJobs.length === 0 ||
                           session.isEncoding ||
                           previewBusy
@@ -344,7 +356,7 @@ function App(): React.JSX.Element {
                   config={config}
                   ffmpegPath={ffmpegPath}
                   ready={ffmpegChecked}
-                  isEncoding={session.isEncoding}
+                  isEncoding={session.isEncoding || isCheckingHardware}
                   onBusyChange={setPreviewBusy}
                 />
                 {showFfmpegPreview && (
@@ -423,11 +435,12 @@ function App(): React.JSX.Element {
         onSelectJob={queue.handleFileSelect}
         selectedJobIds={queue.selectedJobIds}
         hasNvidiaGpu={hasNvidiaGpu}
+        supportedNvidiaEncoders={supportedNvidiaEncoders}
         onSelectAll={queue.handleSelectAll}
         onClearSelection={queue.handleClearSelection}
         onRemoveJobs={queue.handleRemoveJobs}
         onEncode={() => {
-          if (!ffmpegChecked || previewBusy) {
+          if (!encoderReady || previewBusy) {
             setShowFfmpegSetup(!ffmpegChecked)
             return
           }
@@ -437,7 +450,7 @@ function App(): React.JSX.Element {
         }}
         isEncoding={session.isEncoding}
         isLocked={previewBusy}
-        canEncode={ffmpegChecked && !previewBusy}
+        canEncode={encoderReady && !previewBusy}
         onSkipCurrent={session.handleSkipCurrent}
         onSaveQueue={queue.handleSaveQueue}
         onLoadQueue={queue.handleLoadQueue}

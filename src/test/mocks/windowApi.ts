@@ -45,6 +45,7 @@ export type WindowApiMock = {
   selectFfmpegPath: jest.Mock<Promise<string | null>, []>
   openExternal: jest.Mock<Promise<void>, [string]>
   checkNvidiaSupport: jest.Mock<Promise<boolean>, [string?]>
+  getSupportedNvidiaEncoders: jest.Mock<Promise<string[]>, [string?]>
   onEncodingProgress: jest.Mock<() => void, [(payload: EncodingProgressPayload) => void]>
   onEncodingLog: jest.Mock<() => void, [(payload: EncodingLogPayload) => void]>
   onEncodingComplete: jest.Mock<() => void, [(payload: EncodingCompletePayload) => void]>
@@ -91,6 +92,7 @@ const defaultWindowApiMock = (): WindowApiMock => ({
   selectFfmpegPath: jest.fn().mockResolvedValue(null),
   openExternal: jest.fn().mockResolvedValue(undefined),
   checkNvidiaSupport: jest.fn().mockResolvedValue(false),
+  getSupportedNvidiaEncoders: jest.fn().mockResolvedValue([]),
   onEncodingProgress: jest.fn().mockReturnValue(() => {}),
   onEncodingLog: jest.fn().mockReturnValue(() => {}),
   onEncodingComplete: jest.fn().mockReturnValue(() => {}),

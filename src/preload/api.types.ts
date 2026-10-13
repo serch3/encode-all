@@ -49,6 +49,7 @@ export interface CustomAPI {
     error?: string
   }>
   checkNvidiaSupport: (ffmpegPath?: string) => Promise<boolean>
+  getSupportedNvidiaEncoders: (ffmpegPath?: string) => Promise<string[]>
   selectFfmpegPath: () => Promise<string | null>
   openExternal: (url: string) => Promise<void>
   startEncoding: (options: EncodingOptions & { jobId?: string }) => Promise<void>

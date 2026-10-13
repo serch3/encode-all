@@ -55,6 +55,8 @@ const api: CustomAPI = {
   // FFmpeg-related APIs
   checkFfmpeg: (ffmpegPath?: string) => invoke<FfmpegStatus>('check-ffmpeg', ffmpegPath),
   checkNvidiaSupport: (ffmpegPath?: string) => invoke<boolean>('check-nvidia-support', ffmpegPath),
+  getSupportedNvidiaEncoders: (ffmpegPath?: string) =>
+    invoke<string[]>('get-nvidia-encoders', ffmpegPath),
   selectFfmpegPath: () => invoke<string | null>('select-ffmpeg-path'),
   openExternal: (url: string) => invoke<void>('open-external', url),
 

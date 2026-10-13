@@ -166,7 +166,10 @@ export async function checkFfmpegInstallation(customPath?: string): Promise<Ffmp
   return incomplete ?? { isInstalled: false, error }
 }
 
-export async function checkNvidiaSupport(ffmpegPath?: string): Promise<boolean> {
+async function probeNvidiaEncoder(
+  ffmpegPath: string | undefined,
+  encoder: string
+): Promise<boolean> {
   try {
     // A compiled-in encoder does not establish that a compatible GPU/driver exists.
     await runBinary(ffmpegPath || 'ffmpeg', [
@@ -179,7 +182,7 @@ export async function checkNvidiaSupport(ffmpegPath?: string): Promise<boolean> 
       '-frames:v',
       '1',
       '-c:v',
-      'h264_nvenc',
+      encoder,
       '-f',
       'null',
       '-'
@@ -187,6 +190,25 @@ export async function checkNvidiaSupport(ffmpegPath?: string): Promise<boolean> 
     return true
   } catch {
     return false
+  }
+}
+
+export function checkNvidiaSupport(ffmpegPath?: string): Promise<boolean> {
+  return probeNvidiaEncoder(ffmpegPath, 'h264_nvenc')
+}
+
+export async function getSupportedNvidiaEncoders(ffmpegPath?: string): Promise<string[]> {
+  try {
+    const output = await runBinary(ffmpegPath || 'ffmpeg', ['-hide_banner', '-encoders'])
+    const supported: string[] = []
+    for (const encoder of ['h264_nvenc', 'hevc_nvenc', 'av1_nvenc']) {
+      if (!new RegExp(`^\\s*V\\S*\\s+${encoder}\\s`, 'm').test(output)) continue
+      // Probe sequentially to avoid consuming multiple GPU encoder sessions.
+      if (await probeNvidiaEncoder(ffmpegPath, encoder)) supported.push(encoder)
+    }
+    return supported
+  } catch {
+    return []
   }
 }
 

@@ -5,6 +5,7 @@ import { join } from 'path'
 import {
   checkFfmpegInstallation,
   checkNvidiaSupport,
+  getSupportedNvidiaEncoders,
   commonFfmpegPaths,
   installFfmpeg,
   resolveFfprobePath,
@@ -40,6 +41,19 @@ function respond(output: (executable: string, args: string[]) => string): void {
 beforeEach(() => {
   ;(access as jest.Mock).mockResolvedValue(undefined)
   ;(realpath as jest.Mock).mockImplementation(async (path) => path)
+})
+
+test('offers only NVENC codecs that the actual GPU can encode', async () => {
+  respond((_executable, args) => {
+    if (args.includes('-encoders'))
+      return ' V....D h264_nvenc NVIDIA\n V....D hevc_nvenc NVIDIA\n V....D av1_nvenc NVIDIA\n'
+    if (args.includes('av1_nvenc')) throw new Error('GPU does not support AV1 encoding')
+    return ''
+  })
+  await expect(getSupportedNvidiaEncoders('/custom/ffmpeg')).resolves.toEqual([
+    'h264_nvenc',
+    'hevc_nvenc'
+  ])
 })
 
 test('includes Homebrew and WinGet locations when desktop PATH is incomplete', () => {

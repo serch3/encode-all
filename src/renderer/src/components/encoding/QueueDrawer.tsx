@@ -68,6 +68,7 @@ interface QueueDrawerProps {
     maxRetries?: number
   ) => void
   hasNvidiaGpu?: boolean
+  supportedNvidiaEncoders?: string[]
 }
 
 export default function QueueDrawer({
@@ -93,7 +94,8 @@ export default function QueueDrawer({
   maxRetries,
   setMaxRetries,
   onUpdateJobOverrides,
-  hasNvidiaGpu = false
+  hasNvidiaGpu = false,
+  supportedNvidiaEncoders
 }: QueueDrawerProps): React.JSX.Element {
   const formatFileSize = (bytes: number): string => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
@@ -577,7 +579,10 @@ export default function QueueDrawer({
                         { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
                         { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
                         { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
-                      ]
+                      ].filter(
+                        (codec) =>
+                          !supportedNvidiaEncoders || supportedNvidiaEncoders.includes(codec.key)
+                      )
                     : [])
                 ].map((codec) => (
                   <SelectItem key={codec.key}>{codec.label}</SelectItem>

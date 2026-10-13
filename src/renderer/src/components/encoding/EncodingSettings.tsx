@@ -58,6 +58,8 @@ interface EncodingSettingsProps {
   // Environment
   isEncoding: boolean
   hasNvidiaGpu: boolean
+  supportedNvidiaEncoders?: string[]
+  isCheckingHardware?: boolean
   isNvenc: boolean
 }
 
@@ -92,6 +94,8 @@ export default function EncodingSettings({
   setSubtitleMode,
   isEncoding,
   hasNvidiaGpu,
+  supportedNvidiaEncoders,
+  isCheckingHardware = false,
   isNvenc
 }: EncodingSettingsProps): React.JSX.Element {
   const allVideoCodecs = useMemo(
@@ -99,16 +103,18 @@ export default function EncodingSettings({
       { key: 'libx264', label: 'H.264 (libx264)' },
       { key: 'libx265', label: 'H.265 (libx265)' },
       { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
-      ...(hasNvidiaGpu
+      ...(hasNvidiaGpu || (isCheckingHardware && videoCodec.includes('nvenc'))
         ? [
             { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
             { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
             { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
-          ]
+          ].filter(
+            (codec) => !supportedNvidiaEncoders || supportedNvidiaEncoders.includes(codec.key)
+          )
         : []),
       { key: 'copy', label: 'Copy' }
     ],
-    [hasNvidiaGpu]
+    [hasNvidiaGpu, isCheckingHardware, supportedNvidiaEncoders, videoCodec]
   )
 
   const allAudioCodecs = useMemo(
@@ -192,10 +198,10 @@ export default function EncodingSettings({
   }, [canEnableTwoPass, setTwoPass, twoPass])
 
   useEffect(() => {
-    if (!selectedVideoCodecKey && availableVideoCodecs.length > 0) {
+    if (!isCheckingHardware && !selectedVideoCodecKey && availableVideoCodecs.length > 0) {
       setVideoCodec(availableVideoCodecs[0].key)
     }
-  }, [availableVideoCodecs, selectedVideoCodecKey, setVideoCodec])
+  }, [availableVideoCodecs, isCheckingHardware, selectedVideoCodecKey, setVideoCodec])
 
   useEffect(() => {
     if (!selectedAudioCodecKey && availableAudioCodecs.length > 0) {

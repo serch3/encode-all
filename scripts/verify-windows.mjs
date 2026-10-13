@@ -22,7 +22,9 @@ try {
   }).outputText
   const modulePath = join(directory, 'ffmpeg-setup.cjs')
   await writeFile(modulePath, compiled)
-  const { checkFfmpegInstallation, getFfmpegInstaller } = createRequire(import.meta.url)(modulePath)
+  const { checkFfmpegInstallation, getFfmpegInstaller, getSupportedNvidiaEncoders } = createRequire(
+    import.meta.url
+  )(modulePath)
   const installed = await checkFfmpegInstallation(process.env.FFMPEG_PATH)
   assert.ok(installed.isInstalled, installed.error)
   assert.ok(win32.isAbsolute(installed.path), 'FFmpeg must resolve to an absolute path')
@@ -32,6 +34,10 @@ try {
   assert.match(installer.command, /--scope user/)
   console.log(
     `Windows FFmpeg ${installed.version}; WinGet ${installer.available ? 'available' : 'unavailable (manual setup supported)'}`
+  )
+  const encoders = await getSupportedNvidiaEncoders(installed.path)
+  console.log(
+    `Usable NVIDIA codecs: ${encoders.join(', ') || 'none; software encoding remains available'}`
   )
 
   const customDirectory = join(directory, 'Custom 日本語 é & install')

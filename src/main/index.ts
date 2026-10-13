@@ -9,6 +9,7 @@ import { EncodingOptions, PreviewOptions } from '../preload/api.types'
 import {
   checkFfmpegInstallation,
   checkNvidiaSupport,
+  getSupportedNvidiaEncoders,
   runBinary,
   resolveFfprobePath,
   getFfmpegInstaller,
@@ -289,6 +290,9 @@ app.whenReady().then(() => {
   ipcMain.handle('check-nvidia-support', async (_, ffmpegPath?: string) => {
     return await checkNvidiaSupport(ffmpegPath)
   })
+  ipcMain.handle('get-nvidia-encoders', (_, ffmpegPath?: string) =>
+    getSupportedNvidiaEncoders(ffmpegPath)
+  )
 
   ipcMain.handle('select-ffmpeg-path', async () => {
     return await selectFfmpegExecutable()
