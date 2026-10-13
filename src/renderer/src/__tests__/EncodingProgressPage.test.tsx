@@ -1,4 +1,6 @@
 import { parseFfmpegStats } from '../utils/ffmpegStats'
+import { renderWithProviders, screen, userEvent } from '@test-utils'
+import EncodingProgressPage from '../components/pages/EncodingProgressPage'
 
 describe('parseFfmpegStats', () => {
   test('parses current size from a typical ffmpeg status line', () => {
@@ -24,4 +26,28 @@ describe('parseFfmpegStats', () => {
       size: '--'
     })
   })
+})
+
+test('terminal logs can be collapsed and auto-follow can be paused while reading', async () => {
+  const user = userEvent.setup()
+  const props = {
+    progress: 25,
+    currentFile: 'source.mp4',
+    logs: ['earlier log'],
+    onCancel: jest.fn(),
+    isEncoding: true
+  }
+  const { rerender } = renderWithProviders(<EncodingProgressPage {...props} />)
+  expect(screen.queryByRole('log')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Show logs' }))
+  const log = screen.getByRole('log', { name: 'FFmpeg logs' })
+  Object.defineProperty(log, 'scrollHeight', { configurable: true, value: 400 })
+  await user.click(screen.getByRole('checkbox', { name: 'Follow latest logs' }))
+  log.scrollTop = 45
+  rerender(<EncodingProgressPage {...props} logs={['earlier log', 'new log']} />)
+  expect(log.scrollTop).toBe(45)
+  await user.click(screen.getByRole('checkbox', { name: 'Follow latest logs' }))
+  expect(log.scrollTop).toBe(400)
+  await user.click(screen.getByRole('button', { name: 'Hide logs' }))
+  expect(screen.queryByRole('log')).not.toBeInTheDocument()
 })

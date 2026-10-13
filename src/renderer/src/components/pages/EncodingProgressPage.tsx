@@ -1,5 +1,5 @@
-import { Card, CardBody, Progress, Button, ScrollShadow, Chip } from '@heroui/react'
-import { useEffect, useRef, useMemo } from 'react'
+import { Card, CardBody, Progress, Button, ScrollShadow, Chip, Checkbox } from '@heroui/react'
+import { useEffect, useRef, useMemo, useState } from 'react'
 import type { QueuedJob } from '../../types'
 import { parseFfmpegStats } from '../../utils/ffmpegStats'
 import {
@@ -60,12 +60,14 @@ const EncodingProgressPage = ({
   onDismiss
 }: EncodingProgressPageProps): React.JSX.Element => {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const [showLogs, setShowLogs] = useState(false)
+  const [followLogs, setFollowLogs] = useState(true)
 
   useEffect(() => {
-    if (scrollRef.current) {
+    if (showLogs && followLogs && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [logs])
+  }, [logs, showLogs, followLogs])
 
   const stats = useMemo(() => parseFfmpegStats(logs), [logs])
 
@@ -83,10 +85,10 @@ const EncodingProgressPage = ({
   }
 
   return (
-    <div className="flex flex-col gap-4 h-full max-h-[calc(100vh-200px)] pb-4">
+    <div className="flex flex-col gap-4 pb-4">
       <Card shadow="sm" className="flex-shrink-0">
         <CardBody className="gap-5">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-wrap justify-between items-center gap-3">
             <div className="min-w-0 pr-4">
               <h2 className="text-xl font-bold flex items-center gap-2">
                 <Activity className="w-5 h-5 text-primary" />
@@ -142,7 +144,10 @@ const EncodingProgressPage = ({
           </div>
 
           {encodingError && (
-            <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger flex items-start gap-2">
+            <div
+              role="alert"
+              className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger flex items-start gap-2"
+            >
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
               <div className="min-w-0">
                 <div className="font-semibold">Encoding failed</div>
@@ -153,7 +158,7 @@ const EncodingProgressPage = ({
         </CardBody>
       </Card>
 
-      <Card shadow="sm" className="flex-1 min-h-[200px]">
+      <Card shadow="sm" className="shrink-0">
         <CardBody className="p-0 flex flex-col h-full">
           <div className="px-4 py-3 border-b border-divider flex items-center justify-between bg-content2/30">
             <h3 className="font-semibold flex items-center gap-2">
@@ -165,7 +170,7 @@ const EncodingProgressPage = ({
             </span>
           </div>
 
-          <ScrollShadow className="flex-1 overflow-y-auto p-2">
+          <ScrollShadow className="max-h-64 overflow-y-auto p-2">
             <div className="flex flex-col gap-1">
               {activeJobs.map((job) => (
                 <div
@@ -216,26 +221,47 @@ const EncodingProgressPage = ({
         </CardBody>
       </Card>
 
-      <Card shadow="sm" className="h-95 shrink-0">
+      <Card shadow="sm" className="shrink-0">
         <CardBody className="p-0 flex flex-col h-full bg-black/5 dark:bg-black/30">
-          <div className="px-3 py-1.5 border-b border-divider/50 bg-content2/50 text-xs font-semibold text-foreground/60 flex items-center justify-between">
+          <div className="px-3 py-2 bg-content2/50 text-sm font-semibold text-foreground/70 flex flex-wrap items-center justify-between gap-3">
             <span>Terminal Output</span>
-            <span className="text-[10px] font-normal opacity-70">Latest runtime logs</span>
+            <div className="flex gap-3 items-center">
+              {showLogs && (
+                <Checkbox size="sm" isSelected={followLogs} onValueChange={setFollowLogs}>
+                  Follow latest logs
+                </Checkbox>
+              )}
+              <Button
+                size="sm"
+                variant="light"
+                aria-expanded={showLogs}
+                aria-controls="encoding-terminal-logs"
+                onPress={() => setShowLogs((value) => !value)}
+              >
+                {showLogs ? 'Hide logs' : 'Show logs'}
+              </Button>
+            </div>
           </div>
-          <ScrollShadow
-            className="flex-1 p-2 font-mono text-[10px] overflow-y-auto select-text text-foreground/70"
-            ref={scrollRef}
-          >
-            {logs.length === 0 ? (
-              <div className="opacity-40 italic">Waiting for logs...</div>
-            ) : (
-              logs.slice(-50).map((log, index) => (
-                <div key={index} className="whitespace-pre-wrap break-all leading-tight">
-                  {log}
-                </div>
-              ))
-            )}
-          </ScrollShadow>
+          {showLogs && (
+            <div
+              id="encoding-terminal-logs"
+              role="log"
+              aria-label="FFmpeg logs"
+              aria-live="off"
+              className="max-h-64 p-3 font-mono text-xs overflow-y-auto select-text text-foreground/70"
+              ref={scrollRef}
+            >
+              {logs.length === 0 ? (
+                <div className="opacity-40 italic">Waiting for logs...</div>
+              ) : (
+                logs.map((log, index) => (
+                  <div key={index} className="whitespace-pre-wrap break-all leading-tight">
+                    {log}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </CardBody>
       </Card>
     </div>
