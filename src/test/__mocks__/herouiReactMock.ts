@@ -182,6 +182,11 @@ export const Select = function Select({
   description,
   ...rest
 }: AnyProps): React.JSX.Element {
+  const options = React.Children.map(children, (child) =>
+    React.isValidElement(child)
+      ? React.cloneElement(child as React.ReactElement<AnyProps>, { value: child.key ?? undefined })
+      : child
+  )
   const value = Array.isArray(selectedKeys)
     ? selectedKeys[0]
     : selectedKeys instanceof Set
@@ -201,7 +206,7 @@ export const Select = function Select({
       },
       ...rest
     },
-    children as React.ReactNode
+    options as React.ReactNode
   )
 }
 

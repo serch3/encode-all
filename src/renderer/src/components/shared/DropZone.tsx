@@ -19,6 +19,7 @@ const ACCEPTED_FORMATS = ['MP4', 'MKV', 'AVI', 'MOV', 'WebM', 'TS']
 
 interface DropZoneProps {
   isEncoding: boolean
+  isLoading?: boolean
   queueCount: number
   onFilesDropped: (files: VideoFile[]) => void
   onBrowseFolder: () => void
@@ -28,6 +29,7 @@ interface DropZoneProps {
 
 export function DropZone({
   isEncoding,
+  isLoading = false,
   queueCount,
   onFilesDropped,
   onBrowseFolder,
@@ -35,11 +37,13 @@ export function DropZone({
   className = ''
 }: DropZoneProps): React.JSX.Element {
   const [isDragging, setIsDragging] = useState(false)
+  const [dropFeedback, setDropFeedback] = useState<string | null>(null)
+  const locked = isEncoding || isLoading
 
   const handleDragOver = (e: React.DragEvent): void => {
     e.preventDefault()
     e.stopPropagation()
-    if (!isEncoding) setIsDragging(true)
+    if (!locked) setIsDragging(true)
   }
 
   const handleDragLeave = (e: React.DragEvent): void => {
@@ -53,51 +57,61 @@ export function DropZone({
     e.preventDefault()
     e.stopPropagation()
     setIsDragging(false)
-    if (isEncoding) return
+    if (locked) return
 
-    const newVideoFiles: VideoFile[] = Array.from(e.dataTransfer.files)
-      .filter((file) => {
-        const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
-        return VALID_EXTENSIONS.includes(ext)
-      })
-      .map((file) => ({
-        name: file.name,
-        path: window.api.getPathForFile(file),
-        size: file.size,
-        modified: file.lastModified
-      }))
-      .filter((file) => Boolean(file.path))
+    setDropFeedback(null)
+    const droppedFiles = Array.from(e.dataTransfer.files)
+    let newVideoFiles: VideoFile[]
+    try {
+      newVideoFiles = droppedFiles
+        .filter((file) => {
+          const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
+          return VALID_EXTENSIONS.includes(ext)
+        })
+        .map((file) => ({
+          name: file.name,
+          path: window.api.getPathForFile(file),
+          size: file.size,
+          modified: file.lastModified
+        }))
+        .filter((file) => Boolean(file.path))
+    } catch {
+      setDropFeedback('Could not read the dropped files. Use Browse Folder to add your videos.')
+      return
+    }
+
+    const skipped = droppedFiles.length - newVideoFiles.length
+    if (newVideoFiles.length === 0) {
+      setDropFeedback(
+        'No supported videos were found. Try MP4, MKV, MOV, or another listed format.'
+      )
+      return
+    }
+    if (skipped > 0) {
+      setDropFeedback(
+        `${skipped} file${skipped === 1 ? ' was' : 's were'} skipped because the format or file path is unsupported.`
+      )
+    }
 
     onFilesDropped(newVideoFiles)
   }
 
   const containerClass =
-    `lg:col-span-2 relative rounded-2xl border-2 border-dashed transition-all duration-200 overflow-hidden ` +
+    `relative rounded-2xl border-2 border-dashed transition-all duration-200 overflow-hidden ` +
     (isDragging
       ? 'border-primary bg-primary/5 shadow-lg shadow-primary/15 dropzone-dragging'
-      : isEncoding
+      : locked
         ? 'border-default-200 bg-content1/40 cursor-not-allowed opacity-60'
-        : 'border-default-300 bg-content1/60 hover:border-primary/50 hover:bg-primary/[0.02] hover:shadow-md cursor-pointer group') +
+        : 'border-default-300 bg-content1/60 hover:border-primary/50 hover:bg-primary/[0.02] hover:shadow-md group') +
     (className ? ` ${className}` : '')
 
   return (
-    <div
+    <section
       className={containerClass}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      onClick={() => {
-        if (!isEncoding) onBrowseFolder()
-      }}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (isEncoding) return
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onBrowseFolder()
-        }
-      }}
+      aria-label="Add videos"
     >
       {/* Dot grid background */}
       <div
@@ -109,7 +123,7 @@ export function DropZone({
       />
 
       {/* Content */}
-      <div className="relative flex flex-col items-center justify-center gap-5 px-8 py-10 text-center">
+      <div className="relative flex flex-col items-center justify-center gap-4 px-4 py-6 text-center">
         {/* Queue count badge */}
         {queueCount > 0 && !isDragging && (
           <div className="absolute top-3 right-3">
@@ -125,34 +139,46 @@ export function DropZone({
           </div>
         )}
 
-        {/* Icon */}
-        <div
-          className={
-            `dz-icon flex items-center justify-center rounded-2xl p-4 transition-all duration-200 ` +
-            (isDragging
-              ? 'bg-primary/15 text-primary scale-110'
-              : 'bg-default-100 text-default-400 group-hover:bg-primary/10 group-hover:text-primary group-hover:scale-105')
-          }
+        <button
+          type="button"
+          aria-label="Drop video files here or browse a folder"
+          disabled={locked}
+          onClick={onBrowseFolder}
+          className="flex w-full flex-col items-center gap-3 rounded-lg p-2 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed cursor-pointer"
         >
-          <UploadCloud size={36} strokeWidth={1.5} />
-        </div>
-
-        {/* Heading */}
-        <div className="space-y-1.5">
-          <p
+          {/* Icon */}
+          <div
             className={
-              `text-lg font-semibold tracking-tight transition-colors duration-150 ` +
-              (isDragging ? 'text-primary' : 'text-foreground')
+              `dz-icon flex items-center justify-center rounded-2xl p-4 transition-all duration-200 ` +
+              (isDragging
+                ? 'bg-primary/15 text-primary scale-110'
+                : 'bg-default-100 text-default-400 group-hover:bg-primary/10 group-hover:text-primary group-hover:scale-105')
             }
           >
-            {isDragging ? 'Release to add to queue' : 'Drop video files here'}
-          </p>
-          <p className="text-sm text-default-500">
-            {isDragging
-              ? 'Files will be added to your encoding queue'
-              : 'or use the buttons below to browse or restore a session'}
-          </p>
-        </div>
+            <UploadCloud size={36} strokeWidth={1.5} />
+          </div>
+
+          {/* Heading */}
+          <div className="space-y-1.5">
+            <p
+              className={
+                `text-lg font-semibold tracking-tight transition-colors duration-150 ` +
+                (isDragging ? 'text-primary' : 'text-foreground')
+              }
+            >
+              {isDragging ? 'Release to add to queue' : 'Drop video files here'}
+            </p>
+            <p className="text-sm text-default-500">
+              {isDragging
+                ? 'Files will be added to your encoding queue'
+                : isLoading
+                  ? 'Loading videos into your queue…'
+                  : isEncoding
+                    ? 'Adding videos is paused while processing.'
+                    : 'Browse a folder or restore a saved queue.'}
+            </p>
+          </div>
+        </button>
 
         {/* Action buttons */}
         {!isDragging && (
@@ -161,9 +187,8 @@ export function DropZone({
               color="primary"
               variant="solid"
               onPress={onBrowseFolder}
-              isDisabled={isEncoding}
+              isDisabled={locked}
               startContent={<FolderOpen size={16} />}
-              onClick={(e) => e.stopPropagation()}
               size="sm"
             >
               Browse Folder
@@ -171,12 +196,11 @@ export function DropZone({
             <Button
               variant="flat"
               onPress={onLoadSession}
-              isDisabled={isEncoding}
+              isDisabled={locked}
               startContent={<History size={16} />}
-              onClick={(e) => e.stopPropagation()}
               size="sm"
             >
-              Load Session
+              Load Queue
             </Button>
           </div>
         )}
@@ -194,7 +218,12 @@ export function DropZone({
             ))}
           </div>
         )}
+        {dropFeedback && (
+          <p role="status" className="text-sm text-warning-700 dark:text-warning-400">
+            {dropFeedback}
+          </p>
+        )}
       </div>
-    </div>
+    </section>
   )
 }

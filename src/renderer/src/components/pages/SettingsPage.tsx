@@ -17,6 +17,7 @@ interface SettingsProps {
   enableLogging: boolean
   onEnableLoggingChange: (value: boolean) => void
   logDirectory: string
+  logError?: string | null
   onSelectLogDirectory: () => void
   ffmpegPath?: string
   onFfmpegPathSelected?: (path: string) => void
@@ -30,6 +31,7 @@ export default function SettingsPage({
   enableLogging,
   onEnableLoggingChange,
   logDirectory,
+  logError,
   onSelectLogDirectory,
   ffmpegPath,
   onFfmpegPathSelected,
@@ -124,7 +126,11 @@ export default function SettingsPage({
                 )}
                 <div>
                   <p className="font-medium">
-                    {ffmpegStatus.isInstalled ? 'FFmpeg Installed' : 'FFmpeg Not Found'}
+                    {isCheckingFfmpeg
+                      ? 'Checking FFmpeg…'
+                      : ffmpegStatus.isInstalled
+                        ? 'FFmpeg Installed'
+                        : 'FFmpeg Not Found'}
                   </p>
                   {ffmpegStatus.version && (
                     <p className="text-sm text-default-500">Version: {ffmpegStatus.version}</p>
@@ -144,6 +150,7 @@ export default function SettingsPage({
                   size="sm"
                   variant="ghost"
                   isIconOnly
+                  aria-label="Check FFmpeg installation"
                   onPress={checkFfmpegStatus}
                   isLoading={isCheckingFfmpeg}
                 >
@@ -154,7 +161,11 @@ export default function SettingsPage({
                   color={ffmpegStatus.isInstalled ? 'success' : 'warning'}
                   variant="flat"
                 >
-                  {ffmpegStatus.isInstalled ? 'Ready' : 'Setup Required'}
+                  {isCheckingFfmpeg
+                    ? 'Checking…'
+                    : ffmpegStatus.isInstalled
+                      ? 'Ready'
+                      : 'Setup Required'}
                 </Chip>
               </div>
             </div>
@@ -185,9 +196,11 @@ export default function SettingsPage({
                 <div>
                   <p className="font-medium">Hardware Acceleration</p>
                   <p className="text-sm text-default-500">
-                    {nvidiaStatus
-                      ? 'NVIDIA NVENC detected and enabled'
-                      : 'No supported NVIDIA GPU detected'}
+                    {isCheckingNvidia
+                      ? 'Checking available NVIDIA encoders…'
+                      : nvidiaStatus
+                        ? 'NVIDIA encoders are available. Choose an NVENC video codec to use them.'
+                        : 'No supported NVIDIA GPU detected'}
                   </p>
                 </div>
               </div>
@@ -196,7 +209,7 @@ export default function SettingsPage({
                   size="sm"
                   variant="ghost"
                   isIconOnly
-                  aria-label="Check FFmpeg installation"
+                  aria-label="Check NVIDIA encoder support"
                   onPress={checkNvidiaStatus}
                   isLoading={isCheckingNvidia}
                   isDisabled={!ffmpegStatus.isInstalled}
@@ -204,7 +217,7 @@ export default function SettingsPage({
                   <RefreshCw className={`w-4 h-4 ${isCheckingNvidia ? 'animate-spin' : ''}`} />
                 </Button>
                 <Chip size="sm" color={nvidiaStatus ? 'success' : 'default'} variant="flat">
-                  {nvidiaStatus ? 'Active' : 'Inactive'}
+                  {isCheckingNvidia ? 'Checking…' : nvidiaStatus ? 'Available' : 'Unavailable'}
                 </Chip>
               </div>
             </div>
@@ -261,6 +274,11 @@ export default function SettingsPage({
               </Button>
             }
           />
+        )}
+        {logError && (
+          <p role="alert" className="text-sm text-danger">
+            {logError}
+          </p>
         )}
 
         <Switch

@@ -190,6 +190,7 @@ export default function EncodingSettings({
 
   const canEnableTwoPass =
     rateControlMode === 'bitrate' && videoCodec !== 'copy' && !videoCodec.includes('nvenc')
+  const copyingVideo = videoCodec === 'copy'
 
   useEffect(() => {
     if (twoPass && !canEnableTwoPass) {
@@ -217,9 +218,10 @@ export default function EncodingSettings({
           color="primary"
           variant="underlined"
           classNames={{
-            tabList: 'gap-6 w-full relative rounded-none p-0 border-b border-divider',
+            tabList:
+              'gap-1 w-full relative rounded-none p-0 border-b border-divider overflow-x-auto',
             cursor: 'w-full bg-primary',
-            tab: 'max-w-fit px-4 h-12',
+            tab: 'max-w-fit shrink-0 px-3 h-12',
             tabContent: 'group-data-[selected=true]:text-primary'
           }}
         >
@@ -264,7 +266,7 @@ export default function EncodingSettings({
                 selectedKeys={[preset]}
                 onSelectionChange={(keys) => setPreset(Array.from(keys)[0] as string)}
                 description="Speed vs Compression efficiency"
-                isDisabled={isEncoding}
+                isDisabled={isEncoding || copyingVideo}
               >
                 <SelectItem key="ultrafast">Ultrafast</SelectItem>
                 <SelectItem key="superfast">Superfast</SelectItem>
@@ -283,7 +285,7 @@ export default function EncodingSettings({
                   orientation="horizontal"
                   value={rateControlMode}
                   onValueChange={(val) => setRateControlMode(val as 'crf' | 'bitrate')}
-                  isDisabled={isEncoding}
+                  isDisabled={isEncoding || copyingVideo}
                 >
                   <Radio value="crf">Constant Quality (CRF/CQ)</Radio>
                   <Radio value="bitrate">Average Bitrate</Radio>
@@ -309,7 +311,7 @@ export default function EncodingSettings({
                           ? '0-63. Lower is better quality.'
                           : '0-51. Lower is better quality. 18-28 is good.'
                     }
-                    isDisabled={isEncoding}
+                    isDisabled={isEncoding || copyingVideo}
                   />
                 ) : (
                   <Input
@@ -319,7 +321,7 @@ export default function EncodingSettings({
                     value={videoBitrate.toString()}
                     onChange={(e) => setVideoBitrate(parseInt(e.target.value) || 2500)}
                     description="Target average bitrate."
-                    isDisabled={isEncoding}
+                    isDisabled={isEncoding || copyingVideo}
                   />
                 )}
               </div>
@@ -338,6 +340,12 @@ export default function EncodingSettings({
                     : 'Requires average bitrate mode and a software video encoder.'}
                 </p>
               </div>
+              {copyingVideo && (
+                <p role="status" className="col-span-full text-sm text-default-600">
+                  Stream copy keeps the original video quality. Preset and quality controls apply
+                  when you choose a video encoder.
+                </p>
+              )}
             </div>
           </Tab>
 

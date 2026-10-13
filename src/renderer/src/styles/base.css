@@ -1,4 +1,5 @@
-Light theme defaults :root {
+/* Light theme defaults */
+:root {
   --ev-c-white: #ffffff;
   --ev-c-white-soft: #f8f8f8;
   --ev-c-white-mute: #f2f2f2;
@@ -77,7 +78,7 @@ body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background-image: var(--bg);
+  background: var(--bg);
   background-size: cover, cover;
   background-position: center, center;
   background-repeat: no-repeat, no-repeat;
@@ -158,4 +159,15 @@ code {
 
 .queue-filename-width {
   max-width: 230px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

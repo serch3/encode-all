@@ -55,3 +55,11 @@ test('keeps a saved hardware codec while GPU checks are pending', () => {
   )
   expect(settings.setVideoCodec).not.toHaveBeenCalled()
 })
+
+test('stream copy disables controls that cannot change original video quality', () => {
+  renderWithProviders(<EncodingSettings {...settings} videoCodec="copy" />)
+  expect(screen.getByRole('combobox', { name: 'Preset' })).toBeDisabled()
+  expect(screen.getByRole('spinbutton', { name: 'Quality (CRF)' })).toBeDisabled()
+  expect(screen.getByText(/Stream copy keeps the original video quality/)).toBeInTheDocument()
+  expect(screen.getByRole('combobox', { name: 'Video Codec' })).toBeEnabled()
+})
