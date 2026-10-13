@@ -31,6 +31,7 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  artifactName: ${name}-${version}-${arch}-mac.${ext}
   target:
     - target: dmg
       arch: [universal]
