@@ -30,6 +30,7 @@
     "test:unit": "jest --config jest.config.ts --passWithNoTests",
     "test:ffmpeg": "node scripts/verify-ffmpeg.mjs",
     "test:windows": "node scripts/verify-windows.mjs",
+    "test:windows:app": "node scripts/verify-windows-app.mjs",
     "test:watch": "jest --watch --config jest.config.ts",
     "test:coverage": "jest --coverage --config jest.config.ts",
     "test:ci": "jest --ci --runInBand --coverage --config jest.config.ts",

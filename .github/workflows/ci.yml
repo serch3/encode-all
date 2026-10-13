@@ -1,0 +1,71 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Check ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm run test:unit -- --runInBand
+      - name: Build and typecheck
+        run: npm run build
+      - name: Install FFmpeg for integration checks
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Verify real FFmpeg output
+        if: runner.os == 'Linux'
+        run: npm run test:ffmpeg
+      - name: Install FFmpeg for Windows checks
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg installation failed' }
+          $ffmpeg = Get-ChildItem "$env:ChocolateyInstall\lib\ffmpeg" -Filter ffmpeg.exe -Recurse |
+            Where-Object { Test-Path (Join-Path $_.DirectoryName 'ffprobe.exe') } |
+            Select-Object -First 1
+          if (!$ffmpeg) { throw 'FFmpeg and FFprobe binaries were not found' }
+          "FFMPEG_PATH=$($ffmpeg.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "FFPROBE_PATH=$(Join-Path $ffmpeg.DirectoryName 'ffprobe.exe')" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Verify Windows discovery and encodes
+        if: runner.os == 'Windows'
+        run: |
+          npm run test:windows
+          npm run test:ffmpeg
+      - name: Verify Windows preview playback
+        if: runner.os == 'Windows'
+        run: npm run test:windows:app
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        run: npx --no-install electron-builder --win --x64 --publish never
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: encode-all-windows-check
+          path: dist/*-setup.exe
+          if-no-files-found: error
