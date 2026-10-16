@@ -11,10 +11,28 @@ import type {
   PreviewOptions,
   PreviewResult,
   BatchReviewRequest,
-  BatchReviewEntry
+  BatchReviewEntry,
+  EncodingHistoryEntry,
+  VideoFileInfo,
+  UpdateState
 } from '../../preload/api.types'
 
 export type WindowApiMock = {
+  getUpdateState: jest.Mock<Promise<UpdateState>, []>
+  checkForUpdates: jest.Mock<Promise<UpdateState>, ['stable' | 'beta']>
+  downloadUpdate: jest.Mock<Promise<UpdateState>, []>
+  installUpdate: jest.Mock<Promise<void>, []>
+  onUpdateState: jest.Mock<() => void, [(state: UpdateState) => void]>
+  onNativeImport: jest.Mock<() => void, [(paths: string[]) => void]>
+  loadQueueState: jest.Mock<Promise<unknown>, []>
+  saveQueueState: jest.Mock<Promise<void>, [unknown[]]>
+  getEncodingHistory: jest.Mock<Promise<EncodingHistoryEntry[]>, []>
+  clearEncodingHistory: jest.Mock<Promise<void>, []>
+  openOutput: jest.Mock<Promise<void>, [string, boolean?]>
+  setBatchProgress: jest.Mock<Promise<void>, [number]>
+  notifyBatchComplete: jest.Mock<Promise<void>, [number, number]>
+  selectVideoFiles: jest.Mock<Promise<VideoFileInfo[]>, []>
+  importPaths: jest.Mock<Promise<VideoFileInfo[]>, [string[]]>
   getPathForFile: jest.Mock<string, [File]>
   getFfmpegInstaller: jest.Mock<Promise<FfmpegInstaller>, []>
   installFfmpeg: jest.Mock<Promise<FfmpegStatus>, []>
@@ -50,6 +68,7 @@ export type WindowApiMock = {
   openExternal: jest.Mock<Promise<void>, [string]>
   checkNvidiaSupport: jest.Mock<Promise<boolean>, [string?]>
   getSupportedNvidiaEncoders: jest.Mock<Promise<string[]>, [string?]>
+  getSupportedEncoders: jest.Mock<Promise<string[]>, [string?, boolean?]>
   onEncodingProgress: jest.Mock<() => void, [(payload: EncodingProgressPayload) => void]>
   onEncodingLog: jest.Mock<() => void, [(payload: EncodingLogPayload) => void]>
   onEncodingComplete: jest.Mock<() => void, [(payload: EncodingCompletePayload) => void]>
@@ -77,6 +96,21 @@ const ensureWindowApi = (): CustomAPI => {
 }
 
 const defaultWindowApiMock = (): WindowApiMock => ({
+  getUpdateState: jest.fn().mockResolvedValue({ status: 'unavailable' }),
+  checkForUpdates: jest.fn().mockResolvedValue({ status: 'current' }),
+  downloadUpdate: jest.fn().mockResolvedValue({ status: 'downloaded' }),
+  installUpdate: jest.fn().mockResolvedValue(undefined),
+  onUpdateState: jest.fn().mockReturnValue(() => {}),
+  onNativeImport: jest.fn().mockReturnValue(() => {}),
+  loadQueueState: jest.fn().mockResolvedValue(null),
+  saveQueueState: jest.fn().mockResolvedValue(undefined),
+  getEncodingHistory: jest.fn().mockResolvedValue([]),
+  clearEncodingHistory: jest.fn().mockResolvedValue(undefined),
+  openOutput: jest.fn().mockResolvedValue(undefined),
+  setBatchProgress: jest.fn().mockResolvedValue(undefined),
+  notifyBatchComplete: jest.fn().mockResolvedValue(undefined),
+  selectVideoFiles: jest.fn().mockResolvedValue([]),
+  importPaths: jest.fn().mockResolvedValue([]),
   getPathForFile: jest.fn().mockReturnValue('/videos/dropped.mp4'),
   getFfmpegInstaller: jest.fn().mockResolvedValue({ available: false, manager: null }),
   installFfmpeg: jest.fn().mockResolvedValue({ isInstalled: false }),
@@ -109,6 +143,7 @@ const defaultWindowApiMock = (): WindowApiMock => ({
   openExternal: jest.fn().mockResolvedValue(undefined),
   checkNvidiaSupport: jest.fn().mockResolvedValue(false),
   getSupportedNvidiaEncoders: jest.fn().mockResolvedValue([]),
+  getSupportedEncoders: jest.fn().mockResolvedValue(['libx264', 'libx265', 'libvpx-vp9', 'copy']),
   onEncodingProgress: jest.fn().mockReturnValue(() => {}),
   onEncodingLog: jest.fn().mockReturnValue(() => {}),
   onEncodingComplete: jest.fn().mockReturnValue(() => {}),

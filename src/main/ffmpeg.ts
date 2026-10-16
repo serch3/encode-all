@@ -2,7 +2,12 @@ import { spawn, ChildProcess } from 'child_process'
 import { BrowserWindow, powerSaveBlocker } from 'electron'
 import { createWriteStream, WriteStream, mkdirSync, existsSync, rmSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
-import { join, basename, dirname, extname, resolve, win32 } from 'path'
+import { createOutputTransaction } from './outputTransaction'
+import { encodingIssues } from '../shared/encodingValidation'
+import { recordEncodingResult } from './history'
+import { createProgressParser } from './ffmpegProgress'
+import { join, basename, dirname, extname } from 'path'
+import { reservedOutputKey } from './outputPaths'
 import { EncodingOptions } from '../preload/api.types'
 import {
   buildSinglePassFfmpegArgs,
@@ -15,14 +20,6 @@ function sendEvent(window: BrowserWindow, channel: string, payload: unknown): vo
     window.webContents.send(channel, payload)
 }
 
-function setWindowProgress(
-  window: BrowserWindow,
-  progress: number,
-  options?: Electron.ProgressBarOptions
-): void {
-  if (!window.isDestroyed?.()) window.setProgressBar(progress, options)
-}
-
 type JobRecord = {
   id: string
   process: ChildProcess | null
@@ -32,6 +29,9 @@ type JobRecord = {
   hasPowerSaveBlocker: boolean
   canceled: boolean
   passDirectory?: string
+  done: Promise<void>
+  finish: () => void
+  killTimeout?: ReturnType<typeof setTimeout>
 }
 
 const jobs = new Map<string, JobRecord>()
@@ -58,10 +58,13 @@ export function cancelEncoding(jobId?: string): void {
   const cancelJob = (job: JobRecord): void => {
     job.canceled = true
     const processToKill = job.process
-    job.process = null
-    processToKill?.kill()
-    closeLogStream(job)
-    releaseJobPowerSaveBlocker(job)
+    if (processToKill) {
+      processToKill.kill()
+      job.killTimeout = setTimeout(() => {
+        if (job.process === processToKill) processToKill.kill('SIGKILL')
+      }, 2000)
+      job.killTimeout.unref?.()
+    }
   }
 
   if (jobId) {
@@ -74,6 +77,14 @@ export function cancelEncoding(jobId?: string): void {
   for (const job of jobs.values()) {
     cancelJob(job)
   }
+}
+
+export function hasActiveEncodings(): boolean {
+  return jobs.size > 0
+}
+
+export async function waitForEncodings(): Promise<void> {
+  await Promise.all([...jobs.values()].map((job) => job.done))
 }
 
 /**
@@ -106,7 +117,7 @@ function reserveOutputPath(filePath: string): string {
 }
 
 function normalizeOutputPath(filePath: string): string {
-  return process.platform === 'win32' ? win32.resolve(filePath).toLowerCase() : resolve(filePath)
+  return reservedOutputKey(filePath)
 }
 
 function closeLogStream(job: JobRecord): void {
@@ -121,10 +132,13 @@ function releaseJobPowerSaveBlocker(job: JobRecord): void {
 }
 
 function finalizeJob(job: JobRecord): void {
+  if (jobs.get(job.id) !== job) return
+  clearTimeout(job.killTimeout)
   closeLogStream(job)
   releaseJobPowerSaveBlocker(job)
   reservedOutputPaths.delete(normalizeOutputPath(job.outputPath))
   jobs.delete(job.id)
+  job.finish()
   if (job.passDirectory) {
     try {
       rmSync(job.passDirectory, { recursive: true, force: true })
@@ -150,6 +164,15 @@ function runFfmpegCommand(
     job.process = spawn(executable, args, { windowsHide: true })
     let duration = 0
     let recentOutput = ''
+    const parseProgress = createProgressParser((record) => {
+      if (job.duration > 0)
+        onProgress(Math.min(100, Math.round((record.seconds / job.duration) * 100)))
+      sendEvent(mainWindow, 'encoding-log', {
+        jobId: job.id,
+        log: `[${basename(job.outputPath)}] frame=${record.frame} fps=${record.fps} time=${record.time} size=${record.size} speed=${record.speed}\n`
+      })
+    })
+    job.process.stdout?.on('data', (data) => parseProgress(data.toString()))
 
     job.process.stderr?.on('data', (data) => {
       const str = data.toString()
@@ -182,6 +205,8 @@ function runFfmpegCommand(
     })
 
     job.process.on('close', (code) => {
+      job.process = null
+      clearTimeout(job.killTimeout)
       if (code === 0 && !job.canceled) {
         resolve()
       } else {
@@ -223,18 +248,26 @@ export async function startEncoding(
     jobId: maybeJobId
   } = options
 
+  if (maybeJobId && jobs.has(maybeJobId)) throw new Error('A job with this ID is already running.')
   const jobId = maybeJobId || pathHash(`${inputPath}-${outputPath}-${Date.now()}`)
-  const resolvedOutputPath = reserveOutputPath(outputPath)
+  let resolvedOutputPath = reserveOutputPath(outputPath)
+  const startedAt = Date.now()
+  let finish!: () => void
+  const done = new Promise<void>((resolve) => {
+    finish = resolve
+  })
 
   // Create job record
   const job: JobRecord = {
     id: jobId,
     process: null,
     logStream: null,
-    duration: options.trimDurationSeconds ?? 0,
+    duration: options.trimDurationSeconds ?? options.sourceDurationSeconds ?? 0,
     outputPath: resolvedOutputPath,
     hasPowerSaveBlocker: false,
-    canceled: false
+    canceled: false,
+    done,
+    finish
   }
   jobs.set(jobId, job)
 
@@ -248,8 +281,14 @@ export async function startEncoding(
   const executable = ffmpegPath || 'ffmpeg'
   const effectiveTwoPass = canUseTwoPass({ twoPass, videoCodec, rateControlMode })
 
+  let transaction: Awaited<ReturnType<typeof createOutputTransaction>> | undefined
   try {
+    const issues = encodingIssues({ ...options, twoPass: effectiveTwoPass })
+    if (issues.length > 0) throw new Error(issues.join(' '))
+    if (jobs.get(jobId) !== job) throw new Error('A job with this ID is already running.')
+    transaction = await createOutputTransaction(resolvedOutputPath)
     const effectiveOptions: EncodingOptions = {
+      ...options,
       inputPath,
       outputPath: resolvedOutputPath,
       container: options.container,
@@ -322,7 +361,7 @@ export async function startEncoding(
       const passLogPrefix = join(job.passDirectory, 'stats')
       const { pass1Args, pass2Args } = buildTwoPassFfmpegArgs(
         effectiveOptions,
-        resolvedOutputPath,
+        transaction.path,
         passLogPrefix,
         process.platform === 'win32' ? 'NUL' : '/dev/null'
       )
@@ -330,7 +369,6 @@ export async function startEncoding(
       await runFfmpegCommand(executable, pass1Args, mainWindow, job, (p) => {
         const total = p / 2
         sendEvent(mainWindow, 'encoding-progress', { jobId, progress: total })
-        setWindowProgress(mainWindow, total / 100)
       })
 
       // Pass 2
@@ -339,27 +377,60 @@ export async function startEncoding(
       await runFfmpegCommand(executable, pass2Args, mainWindow, job, (p) => {
         const total = 50 + p / 2
         sendEvent(mainWindow, 'encoding-progress', { jobId, progress: total })
-        setWindowProgress(mainWindow, total / 100)
       })
     } else {
       // Single Pass
-      const args = buildSinglePassFfmpegArgs(effectiveOptions, resolvedOutputPath)
+      const args = buildSinglePassFfmpegArgs(effectiveOptions, transaction.path)
 
       await runFfmpegCommand(executable, args, mainWindow, job, (p) => {
         sendEvent(mainWindow, 'encoding-progress', { jobId, progress: p })
-        setWindowProgress(mainWindow, p / 100)
       })
     }
 
     // Success
     if (job.canceled) throw new Error('Encoding canceled')
     job.process = null
+    let outputSize: number
+    for (;;) {
+      if (job.canceled) throw new Error('Encoding canceled')
+      try {
+        outputSize = await transaction.commit(resolvedOutputPath)
+        break
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+        reservedOutputPaths.delete(normalizeOutputPath(resolvedOutputPath))
+        resolvedOutputPath = reserveOutputPath(outputPath)
+        job.outputPath = resolvedOutputPath
+      }
+    }
+    await transaction
+      .dispose()
+      .catch((error) => console.warn('Temporary output cleanup failed:', error))
+    transaction = undefined
+    await recordEncodingResult(options, resolvedOutputPath, outputSize, startedAt).catch(
+      (error) => {
+        sendEvent(mainWindow, 'encoding-log', {
+          jobId,
+          log: `Could not save output history: ${error.message}\n`
+        })
+      }
+    )
     finalizeJob(job)
-    sendEvent(mainWindow, 'encoding-complete', { jobId, outputPath: resolvedOutputPath })
-    setWindowProgress(mainWindow, -1)
+    sendEvent(mainWindow, 'encoding-complete', {
+      jobId,
+      outputPath: resolvedOutputPath,
+      outputSize,
+      elapsedMs: Date.now() - startedAt
+    })
     return resolvedOutputPath
   } catch (error) {
     job.process = null
+    if (transaction) {
+      await transaction
+        .dispose()
+        .catch((cause) => console.warn('Temporary output cleanup failed:', cause))
+      transaction = undefined
+    }
     finalizeJob(job)
     const msg = job.canceled
       ? 'Encoding canceled'
@@ -367,9 +438,15 @@ export async function startEncoding(
         ? error.message
         : 'Unknown error'
     sendEvent(mainWindow, 'encoding-error', { jobId, error: msg })
-    setWindowProgress(mainWindow, 1, { mode: 'error' })
     if (throwOnError) throw new Error(msg)
     return undefined
+  } finally {
+    if (transaction) {
+      await transaction.dispose().catch((error) => {
+        console.warn('Could not clean temporary output:', error)
+      })
+    }
+    finalizeJob(job)
   }
 }
 

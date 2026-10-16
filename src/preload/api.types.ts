@@ -7,6 +7,8 @@ export interface MediaStream {
   height?: number
   r_frame_rate?: string
   pix_fmt?: string
+  color_transfer?: string
+  color_primaries?: string
   channels?: number
   channel_layout?: string
   sample_rate?: string
@@ -25,6 +27,21 @@ export interface MediaInfo {
 }
 
 export interface CustomAPI {
+  getUpdateState: () => Promise<UpdateState>
+  checkForUpdates: (channel: 'stable' | 'beta') => Promise<UpdateState>
+  downloadUpdate: () => Promise<UpdateState>
+  installUpdate: () => Promise<void>
+  onUpdateState: (callback: (state: UpdateState) => void) => () => void
+  onNativeImport: (callback: (paths: string[]) => void) => () => void
+  loadQueueState: () => Promise<unknown>
+  saveQueueState: (jobs: unknown[]) => Promise<void>
+  getEncodingHistory: () => Promise<EncodingHistoryEntry[]>
+  clearEncodingHistory: () => Promise<void>
+  openOutput: (id: string, reveal?: boolean) => Promise<void>
+  setBatchProgress: (progress: number) => Promise<void>
+  notifyBatchComplete: (successful: number, failed: number) => Promise<void>
+  selectVideoFiles: () => Promise<VideoFileInfo[]>
+  importPaths: (paths: string[]) => Promise<VideoFileInfo[]>
   getPathForFile: (file: File) => string
   getFfmpegInstaller: () => Promise<FfmpegInstaller>
   installFfmpeg: () => Promise<FfmpegStatus>
@@ -52,6 +69,7 @@ export interface CustomAPI {
   }>
   checkNvidiaSupport: (ffmpegPath?: string) => Promise<boolean>
   getSupportedNvidiaEncoders: (ffmpegPath?: string) => Promise<string[]>
+  getSupportedEncoders: (ffmpegPath?: string, refresh?: boolean) => Promise<string[]>
   selectFfmpegPath: () => Promise<string | null>
   openExternal: (url: string) => Promise<void>
   startEncoding: (options: EncodingOptions & { jobId?: string }) => Promise<void>
@@ -92,6 +110,8 @@ export interface PreviewResult {
   url: string
   size: number
   durationSeconds: number
+  sourceUrl?: string
+  sourceStartSeconds?: number
 }
 
 export interface BatchReviewRequest {
@@ -101,6 +121,7 @@ export interface BatchReviewRequest {
 }
 
 export interface BatchReviewEntry {
+  reviewToken?: string
   jobId: string
   name: string
   inputPath: string
@@ -111,6 +132,7 @@ export interface BatchReviewEntry {
 }
 
 export interface EncodingOptions {
+  reviewToken?: string
   inputPath: string
   outputPath: string
   container: string
@@ -134,6 +156,47 @@ export interface EncodingOptions {
   /** Used only for bounded sample encodes. */
   trimStartSeconds?: number
   trimDurationSeconds?: number
+  sourceDurationSeconds?: number
+  /** Explicit format policy for compatible SDR playback or source preservation. */
+  pixelFormat?: 'compatible' | 'preserve'
+  maxHeight?: number
+  targetSizeMb?: number
+  audioStreamIndex?: number
+  subtitleStreamIndex?: number
+}
+
+export interface VideoFileInfo {
+  name: string
+  path: string
+  size: number
+  modified: number
+}
+
+export interface UpdateState {
+  status:
+    | 'unavailable'
+    | 'idle'
+    | 'checking'
+    | 'current'
+    | 'available'
+    | 'downloading'
+    | 'downloaded'
+    | 'error'
+  version?: string
+  progress?: number
+  message?: string
+}
+
+export interface EncodingHistoryEntry {
+  id: string
+  inputPath: string
+  outputPath: string
+  inputSize: number
+  outputSize: number
+  startedAt: number
+  completedAt: number
+  videoCodec: string
+  container: string
 }
 
 export interface EncodingProgressPayload {
@@ -149,6 +212,8 @@ export interface EncodingLogPayload {
 export interface EncodingCompletePayload {
   jobId: string
   outputPath?: string
+  outputSize?: number
+  elapsedMs?: number
 }
 
 export interface EncodingErrorPayload {

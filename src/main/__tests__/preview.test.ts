@@ -68,7 +68,12 @@ const encoding: EncodingOptions = {
 }
 
 beforeEach(() => {
-  ;(runBinary as jest.Mock).mockResolvedValue(JSON.stringify({ format: { duration: '40' } }))
+  ;(runBinary as jest.Mock).mockResolvedValue(
+    JSON.stringify({
+      streams: [{ index: 0, codec_type: 'video', codec_name: 'h264' }],
+      format: { duration: '40' }
+    })
+  )
   ;(mkdtemp as jest.Mock).mockResolvedValue('/tmp/encode-all-preview-test')
   ;(rm as jest.Mock).mockResolvedValue(undefined)
   ;(startEncoding as jest.Mock).mockImplementation(

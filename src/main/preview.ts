@@ -6,10 +6,12 @@ import { Readable } from 'stream'
 import { randomUUID } from 'crypto'
 import { startEncoding, cancelEncoding } from './ffmpeg'
 import { runBinary, resolveFfprobePath } from './ffmpegSetup'
-import type { PreviewOptions, PreviewResult } from '../preload/api.types'
+import { sourceMediaIssues } from '../shared/mediaValidation'
+import { withTargetSize } from '../shared/targetSize'
+import type { MediaInfo, PreviewOptions, PreviewResult } from '../preload/api.types'
 import { parseByteRange } from './mediaRange'
 
-const previews = new Map<string, { path: string; directory: string }>()
+const previews = new Map<string, { path: string; directory: string; sourcePath: string }>()
 const previewWindows = new Map<string, BrowserWindow>()
 type ActivePreview = { id: string; canceled: boolean; done?: Promise<void> }
 let active: ActivePreview | undefined
@@ -52,19 +54,14 @@ export async function createPreview(
     const metadata = JSON.parse(
       await runBinary(
         probe,
-        [
-          '-v',
-          'error',
-          '-show_entries',
-          'format=duration',
-          '-of',
-          'json',
-          options.encoding.inputPath
-        ],
+        ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', options.encoding.inputPath],
         20_000
       )
-    ) as { format?: { duration?: string } }
+    ) as MediaInfo
+    const issues = sourceMediaIssues(options.encoding, metadata)
+    if (issues.errors.length) throw new Error(issues.errors.join(' '))
     const sourceDuration = Number(metadata.format?.duration)
+    const encoding = withTargetSize(options.encoding, metadata)
     if (Number.isFinite(sourceDuration) && options.startSeconds >= sourceDuration) {
       throw new Error('Preview start is beyond the end of the video')
     }
@@ -75,7 +72,7 @@ export async function createPreview(
     if (record.canceled) throw new Error('Preview canceled')
     const outputPath = await startEncoding(
       {
-        ...options.encoding,
+        ...encoding,
         jobId: record.id,
         outputPath: join(directory, `preview.${options.encoding.container}`),
         trimStartSeconds: options.startSeconds,
@@ -94,10 +91,12 @@ export async function createPreview(
           : 'Preview encoding failed. Check the selected codecs, container, and FFmpeg installation.'
       )
     const file = await stat(outputPath)
-    previews.set(record.id, { path: outputPath, directory })
+    previews.set(record.id, { path: outputPath, directory, sourcePath: options.encoding.inputPath })
     return {
       id: record.id,
       url: `encode-preview://clip/${record.id}`,
+      sourceUrl: `encode-preview://clip/${record.id}?source=1`,
+      sourceStartSeconds: options.startSeconds,
       size: file.size,
       durationSeconds
     }
@@ -183,7 +182,8 @@ export async function previewResponse(request: Request): Promise<Response> {
     return new Response(null, { status: 404 })
   // Only registered clips are exposed. Electron's file fetch ignores Range headers,
   // so serve explicit byte ranges for media seeking on Windows and other platforms.
-  const { size } = await stat(preview.path)
+  const path = url.searchParams.get('source') === '1' ? preview.sourcePath : preview.path
+  const { size } = await stat(path)
   const requestedRange = request.headers.get('range')
   const range = requestedRange ? parseByteRange(requestedRange, size) : null
   if (requestedRange && !range) {
@@ -196,7 +196,7 @@ export async function previewResponse(request: Request): Promise<Response> {
     '.mkv': 'video/x-matroska'
   }
   const headers = new Headers({
-    'Content-Type': types[extname(preview.path)] ?? 'application/octet-stream',
+    'Content-Type': types[extname(path).toLowerCase()] ?? 'application/octet-stream',
     'Accept-Ranges': 'bytes',
     'Content-Length': String(range ? range.end - range.start + 1 : size),
     'Cache-Control': 'no-store'
@@ -205,9 +205,7 @@ export async function previewResponse(request: Request): Promise<Response> {
   const body =
     request.method === 'HEAD' || size === 0
       ? null
-      : (Readable.toWeb(
-          createReadStream(preview.path, range ?? undefined)
-        ) as ReadableStream<Uint8Array>)
+      : (Readable.toWeb(createReadStream(path, range ?? undefined)) as ReadableStream<Uint8Array>)
   return new Response(body, { status: range ? 206 : 200, headers })
 }
 

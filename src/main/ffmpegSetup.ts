@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { access, readdir, realpath } from 'fs/promises'
 import { dirname, join, win32 } from 'path'
 import type { FfmpegInstaller, FfmpegStatus } from '../preload/api.types'
+import { VIDEO_ENCODERS } from '../shared/encoders'
 
 export function runBinary(
   executable: string,
@@ -178,11 +179,13 @@ async function probeNvidiaEncoder(
       '-f',
       'lavfi',
       '-i',
-      'color=size=128x128:rate=1',
+      'color=size=256x256:rate=30',
       '-frames:v',
       '1',
       '-c:v',
       encoder,
+      '-b:v',
+      '1000k',
       '-f',
       'null',
       '-'
@@ -191,6 +194,35 @@ async function probeNvidiaEncoder(
   } catch {
     return false
   }
+}
+
+const capabilityCache = new Map<string, { until: number; result: Promise<string[]> }>()
+
+export function getSupportedEncoders(ffmpegPath?: string, refresh = false): Promise<string[]> {
+  const executable = ffmpegPath || 'ffmpeg'
+  const key = `${process.platform}:${executable}`
+  const cached = capabilityCache.get(key)
+  if (!refresh && cached && cached.until > Date.now()) return cached.result
+  const result = (async () => {
+    const output = await runBinary(executable, ['-hide_banner', '-encoders'])
+    const available = ['copy']
+    for (const encoder of VIDEO_ENCODERS) {
+      if (!new RegExp(`^\\s*V\\S*\\s+${encoder.key}\\s`, 'm').test(output)) continue
+      if (encoder.backend === 'software') {
+        available.push(encoder.key)
+        continue
+      }
+      if (encoder.backend === 'apple' && process.platform !== 'darwin') continue
+      if (['intel', 'amd'].includes(encoder.backend) && process.platform !== 'win32') continue
+      if (encoder.backend === 'copy') continue
+      // Exercise initialization and a real frame, rather than trusting compiled-in support.
+      if (await probeNvidiaEncoder(executable, encoder.key)) available.push(encoder.key)
+    }
+    return available
+  })()
+  capabilityCache.set(key, { until: Date.now() + 5 * 60_000, result })
+  void result.catch(() => capabilityCache.delete(key))
+  return result
 }
 
 export function checkNvidiaSupport(ffmpegPath?: string): Promise<boolean> {

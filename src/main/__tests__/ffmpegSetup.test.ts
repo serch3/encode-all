@@ -6,6 +6,7 @@ import {
   checkFfmpegInstallation,
   checkNvidiaSupport,
   getSupportedNvidiaEncoders,
+  getSupportedEncoders,
   commonFfmpegPaths,
   installFfmpeg,
   resolveFfprobePath,
@@ -54,6 +55,29 @@ test('offers only NVENC codecs that the actual GPU can encode', async () => {
     'h264_nvenc',
     'hevc_nvenc'
   ])
+})
+
+test('detects platform hardware and caches actual initialization results', async () => {
+  const originalPlatform = process.platform
+  Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true })
+  try {
+    respond((_bin, args) => {
+      if (args.includes('-encoders'))
+        return ' V..... libx264 software\n V..... h264_videotoolbox Apple\n V..... hevc_videotoolbox Apple\n V..... h264_qsv Intel\n'
+      if (args.includes('hevc_videotoolbox')) throw new Error('No usable HEVC session')
+      return ''
+    })
+    await expect(getSupportedEncoders('/test/capability-ffmpeg', true)).resolves.toEqual([
+      'copy',
+      'libx264',
+      'h264_videotoolbox'
+    ])
+    const calls = (spawn as jest.Mock).mock.calls.length
+    await getSupportedEncoders('/test/capability-ffmpeg')
+    expect(spawn).toHaveBeenCalledTimes(calls)
+  } finally {
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+  }
 })
 
 test('includes Homebrew and WinGet locations when desktop PATH is incomplete', () => {

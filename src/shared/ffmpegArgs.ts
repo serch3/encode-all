@@ -1,4 +1,5 @@
 import type { EncodingOptions } from '../preload/api.types'
+import { videoEncoder } from './encoders'
 
 export interface FfmpegArgParts {
   baseArgs: string[]
@@ -33,11 +34,12 @@ export function buildFfmpegArgParts(options: EncodingOptions): FfmpegArgParts {
     rateControlMode
   } = options
 
-  const baseArgs = ['-hide_banner', '-nostdin', '-i', inputPath, '-map_metadata', '0']
+  const baseArgs = ['-hide_banner', '-nostdin', '-progress', 'pipe:1', '-nostats']
   if (options.trimStartSeconds !== undefined) {
-    // Output-side seeking remains accurate for files with sparse keyframes.
+    // Accurate input seeking avoids decoding the entire prefix for late samples.
     baseArgs.push('-ss', options.trimStartSeconds.toString())
   }
+  baseArgs.push('-i', inputPath, '-map_metadata', '0')
   if (options.trimDurationSeconds !== undefined) {
     baseArgs.push('-t', options.trimDurationSeconds.toString())
   }
@@ -50,10 +52,21 @@ export function buildFfmpegArgParts(options: EncodingOptions): FfmpegArgParts {
       videoArgs.push('-b:v', '0', '-crf', crf.toString())
     } else if (videoCodec.includes('nvenc')) {
       videoArgs.push('-rc', 'vbr', '-cq', crf.toString(), '-b:v', '0')
+    } else if (videoCodec.endsWith('_qsv')) {
+      videoArgs.push('-global_quality', crf.toString())
+    } else if (videoCodec.endsWith('_amf')) {
+      videoArgs.push('-rc', 'cqp', '-qp_i', crf.toString(), '-qp_p', crf.toString())
     } else {
       videoArgs.push('-crf', crf.toString())
     }
     videoArgs.push(...presetArgsFor(videoCodec, preset))
+    if (options.maxHeight)
+      videoArgs.push('-vf', `scale=w=-2:h=trunc(min(ih\\,${options.maxHeight})/2)*2`)
+    if (options.pixelFormat === 'compatible')
+      videoArgs.push(
+        '-pix_fmt',
+        ['intel', 'amd'].includes(videoEncoder(videoCodec)?.backend ?? '') ? 'nv12' : 'yuv420p'
+      )
   }
 
   const audioArgs = ['-c:a', audioCodec]
@@ -77,6 +90,15 @@ export function buildFfmpegArgParts(options: EncodingOptions): FfmpegArgParts {
     subtitleArgs.push('-sn')
   } else if (subtitleMode === 'copy') {
     subtitleArgs.push('-c:s', 'copy')
+  } else if (subtitleMode === 'text') {
+    subtitleArgs.push(
+      '-c:s',
+      options.container === 'webm'
+        ? 'webvtt'
+        : ['mp4', 'mov'].includes(options.container)
+          ? 'mov_text'
+          : 'srt'
+    )
   }
 
   const commonArgs: string[] = []
@@ -90,7 +112,12 @@ export function buildFfmpegArgParts(options: EncodingOptions): FfmpegArgParts {
     audioArgs,
     subtitleArgs,
     commonArgs,
-    mapArgs: buildMapArgs(trackSelection, subtitleMode)
+    mapArgs: buildMapArgs(
+      trackSelection,
+      subtitleMode,
+      options.audioStreamIndex,
+      options.subtitleStreamIndex
+    )
   }
 }
 
@@ -126,6 +153,7 @@ export function buildTwoPassFfmpegArgs(
     pass1Args: [
       ...baseArgs,
       ...videoArgs,
+      ...videoMapsFor(options),
       '-an',
       '-sn',
       ...commonArgs,
@@ -161,7 +189,7 @@ function finalOutputArgs(options: EncodingOptions, outputPath: string): string[]
   const container = options.container.toLowerCase()
   if (container === 'mp4' || container === 'mov' || container === 'm4v') {
     args.push('-movflags', '+faststart')
-    if (options.videoCodec === 'libx265' || options.videoCodec === 'hevc_nvenc') {
+    if (options.videoCodec === 'libx265' || options.videoCodec.startsWith('hevc_')) {
       args.push('-tag:v', 'hvc1')
     }
   }
@@ -170,6 +198,36 @@ function finalOutputArgs(options: EncodingOptions, outputPath: string): string[]
 }
 
 function presetArgsFor(videoCodec: string, preset: string): string[] {
+  const backend = videoEncoder(videoCodec)?.backend
+  if (backend === 'apple') return []
+  if (backend === 'intel')
+    return ['-preset', ['ultrafast', 'superfast'].includes(preset) ? 'veryfast' : preset]
+  if (backend === 'amd')
+    return [
+      '-quality',
+      ['ultrafast', 'superfast', 'veryfast', 'faster'].includes(preset)
+        ? 'speed'
+        : ['slow', 'slower', 'veryslow'].includes(preset)
+          ? 'quality'
+          : 'balanced'
+    ]
+  if (videoCodec === 'libsvtav1')
+    return [
+      '-preset',
+      (
+        {
+          ultrafast: '12',
+          superfast: '11',
+          veryfast: '10',
+          faster: '9',
+          fast: '8',
+          medium: '7',
+          slow: '6',
+          slower: '5',
+          veryslow: '4'
+        } as Record<string, string>
+      )[preset] ?? '7'
+    ]
   if (videoCodec.includes('nvenc')) {
     const presets: Record<string, string> = {
       ultrafast: 'p1',
@@ -215,10 +273,42 @@ function vp9CpuUsedFor(preset: string): string {
   }
 }
 
-function buildMapArgs(trackSelection: string, subtitleMode: string): string[] {
+function videoMapsFor(options: EncodingOptions): string[] {
+  if (options.trackSelection === 'all') return ['-map', '0:v?']
+  if (
+    options.trackSelection === 'all_audio' ||
+    options.subtitleMode !== 'none' ||
+    options.audioStreamIndex !== undefined ||
+    options.subtitleStreamIndex !== undefined
+  )
+    return ['-map', '0:v:0?']
+  return []
+}
+
+function buildMapArgs(
+  trackSelection: string,
+  subtitleMode: string,
+  audioIndex?: number,
+  subtitleIndex?: number
+): string[] {
+  if (audioIndex !== undefined || subtitleIndex !== undefined) {
+    const maps = [
+      '-map',
+      trackSelection === 'all' ? '0:v?' : '0:v:0?',
+      '-map',
+      audioIndex !== undefined
+        ? `0:${audioIndex}`
+        : ['all', 'all_audio'].includes(trackSelection)
+          ? '0:a?'
+          : '0:a:0?'
+    ]
+    if (subtitleMode !== 'none')
+      maps.push('-map', subtitleIndex !== undefined ? `0:${subtitleIndex}` : '0:s?')
+    return maps
+  }
   if (trackSelection === 'all') {
     const args = ['-map', '0:v?', '-map', '0:a?']
-    if (subtitleMode === 'copy') {
+    if (subtitleMode !== 'none') {
       args.push('-map', '0:s?')
     }
     return args
@@ -226,13 +316,13 @@ function buildMapArgs(trackSelection: string, subtitleMode: string): string[] {
 
   if (trackSelection === 'all_audio') {
     const args = ['-map', '0:v:0?', '-map', '0:a?']
-    if (subtitleMode === 'copy') {
+    if (subtitleMode !== 'none') {
       args.push('-map', '0:s?')
     }
     return args
   }
 
-  if (subtitleMode === 'copy') {
+  if (subtitleMode !== 'none') {
     return ['-map', '0:v:0?', '-map', '0:a:0?', '-map', '0:s?']
   }
 

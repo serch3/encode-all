@@ -10,6 +10,14 @@ const mkdirSyncMock = jest.fn()
 const powerSaveBlockerStartMock = jest.fn(() => 1)
 const powerSaveBlockerStopMock = jest.fn()
 
+jest.mock('../outputTransaction', () => ({
+  createOutputTransaction: async (output: string) => ({
+    path: output,
+    commit: async () => 1024,
+    dispose: async () => {}
+  })
+}))
+
 jest.mock('child_process', () => ({
   spawn: (...args: unknown[]) => spawnMock(...args)
 }))
@@ -117,6 +125,9 @@ describe('startEncoding', () => {
     expect(args).toEqual([
       '-hide_banner',
       '-nostdin',
+      '-progress',
+      'pipe:1',
+      '-nostats',
       '-i',
       options.inputPath,
       '-map_metadata',
@@ -151,7 +162,9 @@ describe('startEncoding', () => {
 
     expect(mainWindow.webContents.send).toHaveBeenCalledWith('encoding-complete', {
       jobId: expect.any(String),
-      outputPath: options.outputPath
+      outputPath: options.outputPath,
+      outputSize: 1024,
+      elapsedMs: expect.any(Number)
     })
   })
 
@@ -226,7 +239,9 @@ describe('startEncoding', () => {
 
     expect(mainWindow.webContents.send).toHaveBeenCalledWith('encoding-complete', {
       jobId: expect.any(String),
-      outputPath: options.outputPath
+      outputPath: options.outputPath,
+      outputSize: 1024,
+      elapsedMs: expect.any(Number)
     })
   })
 
@@ -265,6 +280,7 @@ describe('startEncoding', () => {
     const mainWindow = createMainWindowMock()
     const options = {
       ...createBaseOptions(),
+      audioCodec: 'libopus',
       container: 'webm',
       outputPath: 'C:/videos/output.webm',
       videoCodec: 'libvpx-vp9',
@@ -366,6 +382,7 @@ describe('startEncoding', () => {
 
     const startPromise = startEncoding(options, mainWindow as never)
 
+    await Promise.resolve()
     cancelEncoding(options.jobId)
 
     await startPromise

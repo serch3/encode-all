@@ -5,7 +5,10 @@ import { reviewBatchOutputs } from '../batchReview'
 import { runBinary } from '../ffmpegSetup'
 import type { BatchReviewRequest, EncodingOptions } from '../../preload/api.types'
 
-jest.mock('../ffmpegSetup', () => ({ runBinary: jest.fn() }))
+jest.mock('../ffmpegSetup', () => ({
+  runBinary: jest.fn(),
+  resolveFfprobePath: async () => 'ffprobe'
+}))
 let directory: string
 let input: string
 const settings: EncodingOptions = {
@@ -46,11 +49,14 @@ beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'encode-all-review-test-'))
   input = join(directory, 'source.mp4')
   await writeFile(input, 'source')
-  ;(runBinary as jest.Mock)
-    .mockReset()
-    .mockResolvedValue(
-      ' V..... libx264 H.264\n V..... libx265 HEVC\n V..... libvpx-vp9 VP9\n A..... aac AAC\n A..... libopus Opus\n'
-    )
+  ;(runBinary as jest.Mock).mockReset().mockImplementation(async (_bin: string, args: string[]) =>
+    args.includes('-encoders')
+      ? ' V..... libx264 H.264\n V..... libx265 HEVC\n V..... libvpx-vp9 VP9\n A..... aac AAC\n A..... libopus Opus\n'
+      : JSON.stringify({
+          streams: [{ index: 0, codec_type: 'video', codec_name: 'h264' }],
+          format: { duration: '10' }
+        })
+  )
 })
 afterEach(async () => {
   await rm(directory, { recursive: true, force: true })
@@ -62,7 +68,16 @@ test('checks a valid batch without creating or modifying output files', async ()
   expect(entry.errors).toEqual([])
   expect(entry.outputPath).toBe(output)
   await expect(stat(output)).rejects.toThrow()
-  expect(runBinary).toHaveBeenCalledTimes(1)
+  expect(runBinary).toHaveBeenCalledTimes(2)
+})
+
+test('returns the exact calculated target-size settings for execution', async () => {
+  const [entry] = await reviewBatchOutputs(
+    requestFor(join(directory, 'target.mp4'), { targetSizeMb: 1, rateControlMode: 'bitrate' })
+  )
+  expect(entry.errors).toEqual([])
+  expect(entry.encoding.videoBitrate).toBe(776)
+  expect(entry.warnings.join()).toContain('approximate')
 })
 
 test('plans distinct filenames for existing files and duplicate batch names', async () => {
@@ -78,7 +93,7 @@ test('plans distinct filenames for existing files and duplicate batch names', as
   expect(entries.every((entry) => entry.warnings.length === 1 && entry.errors.length === 0)).toBe(
     true
   )
-  expect(runBinary).toHaveBeenCalledTimes(1)
+  expect(runBinary).toHaveBeenCalledTimes(2)
 })
 
 test('protects every queued source, including files outside the selected batch', async () => {

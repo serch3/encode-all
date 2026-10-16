@@ -11,7 +11,10 @@ import {
   PreviewOptions,
   PreviewResult,
   BatchReviewRequest,
-  BatchReviewEntry
+  BatchReviewEntry,
+  EncodingHistoryEntry,
+  VideoFileInfo,
+  UpdateState
 } from './api.types'
 
 type VideoFile = {
@@ -38,8 +41,41 @@ const electronAPI = {
 const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> =>
   ipcRenderer.invoke(channel, ...args) as Promise<T>
 
+const pendingNativeImports: string[][] = []
+const nativeImportListeners = new Set<(paths: string[]) => void>()
+ipcRenderer.on('native-import', (_event, paths: string[]) => {
+  if (nativeImportListeners.size) for (const callback of nativeImportListeners) callback(paths)
+  else pendingNativeImports.push(paths.slice(0, 20000))
+})
+
 // Custom APIs for renderer
 const api: CustomAPI = {
+  getUpdateState: () => invoke<UpdateState>('get-update-state'),
+  checkForUpdates: (channel) => invoke<UpdateState>('check-for-updates', channel),
+  downloadUpdate: () => invoke<UpdateState>('download-update'),
+  installUpdate: () => invoke<void>('install-update'),
+  onUpdateState: (callback) => {
+    const listener = (_event: IpcRendererEvent, state: UpdateState): void => callback(state)
+    ipcRenderer.on('update-state', listener)
+    return () => ipcRenderer.removeListener('update-state', listener)
+  },
+  onNativeImport: (callback) => {
+    nativeImportListeners.add(callback)
+    for (const paths of pendingNativeImports.splice(0)) callback(paths)
+    return () => {
+      nativeImportListeners.delete(callback)
+    }
+  },
+  loadQueueState: () => invoke<unknown>('load-queue-state'),
+  saveQueueState: (jobs) => invoke<void>('save-queue-state', jobs),
+  getEncodingHistory: () => invoke<EncodingHistoryEntry[]>('get-encoding-history'),
+  clearEncodingHistory: () => invoke<void>('clear-encoding-history'),
+  openOutput: (id, reveal = false) => invoke<void>('open-output', id, reveal),
+  setBatchProgress: (progress) => invoke<void>('set-batch-progress', progress),
+  notifyBatchComplete: (successful, failed) =>
+    invoke<void>('notify-batch-complete', successful, failed),
+  selectVideoFiles: () => invoke<VideoFileInfo[]>('select-video-files'),
+  importPaths: (paths) => invoke<VideoFileInfo[]>('import-paths', paths),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   getFfmpegInstaller: () => invoke<FfmpegInstaller>('get-ffmpeg-installer'),
   installFfmpeg: () => invoke<FfmpegStatus>('install-ffmpeg'),
@@ -62,6 +98,8 @@ const api: CustomAPI = {
   checkNvidiaSupport: (ffmpegPath?: string) => invoke<boolean>('check-nvidia-support', ffmpegPath),
   getSupportedNvidiaEncoders: (ffmpegPath?: string) =>
     invoke<string[]>('get-nvidia-encoders', ffmpegPath),
+  getSupportedEncoders: (path, refresh) =>
+    invoke<string[]>('get-supported-encoders', path, refresh),
   selectFfmpegPath: () => invoke<string | null>('select-ffmpeg-path'),
   openExternal: (url: string) => invoke<void>('open-external', url),
 
