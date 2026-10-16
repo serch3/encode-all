@@ -185,8 +185,8 @@ Release builds are created by the GitHub Actions workflow in
 
 ```bash
 # Create and push a version tag
-git tag v0.10.0
-git push origin v0.10.0
+git tag v0.10.1
+git push origin v0.10.1
 ```
 
 The workflow builds Windows, macOS, and Linux artifacts, uploads them to a
