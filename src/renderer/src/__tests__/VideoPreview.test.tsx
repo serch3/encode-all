@@ -135,3 +135,31 @@ test('a finished clip remains viewable after its source leaves the queue', async
   expect(screen.getByRole('button', { name: 'Generate Preview' })).toBeDisabled()
   expect(api.releasePreview).not.toHaveBeenCalled()
 })
+
+test('synchronizes source comparison and keeps the sample available if the source cannot play', async () => {
+  const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  mockWindowApi((api) =>
+    api.createPreview.mockResolvedValue({
+      id: 'comparison',
+      url: 'encode-preview://clip/comparison',
+      sourceUrl: 'encode-preview://clip/comparison?source=1',
+      sourceStartSeconds: 120,
+      durationSeconds: 10,
+      size: 1024
+    })
+  )
+  renderWithProviders(<Harness />)
+  await userEvent.click(screen.getByRole('button', { name: 'Generate Preview' }))
+  await userEvent.click(await screen.findByRole('button', { name: 'Compare source and output' }))
+  const source = screen.getByLabelText('Original source comparison') as HTMLVideoElement
+  const output = screen.getByLabelText('Encoded quality preview') as HTMLVideoElement
+  output.currentTime = 3
+  output.playbackRate = 1.5
+  fireEvent.seeking(output)
+  expect(source.currentTime).toBe(123)
+  expect(source.playbackRate).toBe(1.5)
+  fireEvent.error(source)
+  expect(screen.getByText(/This source format cannot play here/)).toBeInTheDocument()
+  expect(screen.getByLabelText('Encoded quality preview')).toBeInTheDocument()
+  pause.mockRestore()
+})

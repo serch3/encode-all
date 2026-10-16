@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@test-utils'
 import { mockWindowApi } from '@test-utils'
-import { useQueueManager } from '../hooks/useQueueManager'
+import { useQueueManager, durableQueueChanged } from '../hooks/useQueueManager'
 import type { QueuedJob, VideoFile } from '../types'
 
 const mediaInfo = {
@@ -30,6 +30,43 @@ const fileC: VideoFile = {
 }
 
 describe('useQueueManager', () => {
+  test('restores interrupted jobs and preserves valid queue settings on import', async () => {
+    mockWindowApi((api) => {
+      api.loadQueueState.mockResolvedValue([
+        {
+          id: 'recover',
+          file: fileA,
+          status: 'encoding',
+          progress: 45,
+          attempts: 1,
+          maxRetries: 2,
+          overrides: { videoCodec: 'libvpx-vp9', crf: 60, volumeDb: 1.5 }
+        }
+      ])
+    })
+    const { result } = renderHook(() => useQueueManager(undefined))
+    await waitFor(() => expect(result.current.isRestoring).toBe(false))
+    expect(result.current.queuedJobs[0]).toEqual(
+      expect.objectContaining({
+        status: 'pending',
+        progress: 0,
+        overrides: { videoCodec: 'libvpx-vp9', crf: 60, volumeDb: 1.5 }
+      })
+    )
+  })
+
+  test('does not checkpoint progress or metadata changes', () => {
+    const job: QueuedJob = {
+      id: 'one',
+      file: fileA,
+      status: 'encoding',
+      progress: 10,
+      attempts: 1,
+      maxRetries: 2
+    }
+    expect(durableQueueChanged([job], [{ ...job, progress: 20, mediaInfo }])).toBe(false)
+    expect(durableQueueChanged([job], [{ ...job, status: 'complete', progress: 100 }])).toBe(true)
+  })
   test('enqueues unique files, opens queue, selects new jobs, and probes media info', async () => {
     mockWindowApi()
     ;(window.api.probeFile as jest.Mock)

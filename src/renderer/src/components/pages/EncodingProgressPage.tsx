@@ -19,6 +19,8 @@ interface EncodingProgressPageProps {
   currentFile?: string
   logs: string[]
   onCancel: () => void
+  onPause?: () => void
+  isPaused?: boolean
   isEncoding: boolean
   encodingError?: string | null
   eta?: string | null
@@ -53,6 +55,8 @@ const EncodingProgressPage = ({
   currentFile,
   logs,
   onCancel,
+  onPause,
+  isPaused,
   isEncoding,
   encodingError,
   eta,
@@ -107,6 +111,11 @@ const EncodingProgressPage = ({
                   Back to Encoding Settings
                 </Button>
               )}
+              {isEncoding && onPause && (
+                <Button variant="flat" onPress={onPause}>
+                  {isPaused ? 'Resume queue' : 'Pause after active jobs'}
+                </Button>
+              )}
               {isEncoding && (
                 <Button color="danger" variant="flat" onPress={onCancel}>
                   Cancel All
@@ -115,6 +124,11 @@ const EncodingProgressPage = ({
             </div>
           </div>
 
+          {isPaused && (
+            <p role="status" className="text-sm text-warning-700 dark:text-warning-400">
+              Queue paused. Active encodes may finish; no new jobs will start until you resume.
+            </p>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard icon={Activity} label="FPS" value={stats.fps} />
             <StatCard icon={Zap} label="Speed" value={stats.speed} />

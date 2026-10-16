@@ -5,6 +5,12 @@ import { useEncodingSession } from '../hooks/useEncodingSession'
 import type { QueuedJob } from '../types'
 
 const baseConfig = {
+  targetSizeMb: 0,
+  setTargetSizeMb: jest.fn(),
+  pixelFormat: 'compatible' as const,
+  maxHeight: 0,
+  setPixelFormat: jest.fn(),
+  setMaxHeight: jest.fn(),
   container: 'mkv',
   videoCodec: 'libx265',
   audioCodec: 'aac',
@@ -497,3 +503,76 @@ test.each([
     await waitFor(() => expect(result.current.isEncoding).toBe(false))
   }
 )
+
+test('pauses after active jobs and resumes the remaining queue', async () => {
+  const complete = new Set<(payload: { jobId: string }) => void>()
+  const api = mockWindowApi((mock) => {
+    mock.onEncodingComplete.mockImplementation((callback) => {
+      complete.add(callback)
+      return () => {
+        complete.delete(callback)
+      }
+    })
+  })
+  const { result } = renderHook(() => {
+    const [jobs, setJobs] = useState([makeJob('first', 0), makeJob('second', 0)])
+    return useEncodingSession({
+      queuedJobs: jobs,
+      setQueuedJobs: setJobs,
+      selectedJobIds: ['first', 'second'],
+      setSelectedJobIds: jest.fn(),
+      maxConcurrency: 1,
+      ffmpegPath: undefined,
+      config: baseConfig
+    })
+  })
+  act(() => result.current.handleStartEncoding())
+  await waitFor(() => expect(api.startEncoding).toHaveBeenCalledTimes(1))
+  act(() => result.current.handlePauseEncoding())
+  await act(async () => {
+    for (const listener of complete) listener({ jobId: 'first' })
+  })
+  expect(result.current.isPaused).toBe(true)
+  expect(api.startEncoding).toHaveBeenCalledTimes(1)
+  act(() => result.current.handlePauseEncoding())
+  await waitFor(() => expect(api.startEncoding).toHaveBeenCalledTimes(2))
+  await act(async () => {
+    for (const listener of complete) listener({ jobId: 'second' })
+  })
+  await waitFor(() => expect(result.current.encodingSummary?.successful).toBe(2))
+})
+
+test('continues after a file error when requested and preserves the remaining result', async () => {
+  const complete = new Set<(payload: { jobId: string }) => void>()
+  mockWindowApi((mock) => {
+    mock.onEncodingComplete.mockImplementation((callback) => {
+      complete.add(callback)
+      return () => {
+        complete.delete(callback)
+      }
+    })
+    mock.startEncoding.mockImplementation(async (options) => {
+      if (options.jobId === 'bad') throw new Error('Invalid input')
+      for (const listener of complete) listener({ jobId: options.jobId! })
+    })
+  })
+  const { result } = renderHook(() => {
+    const [jobs, setJobs] = useState([makeJob('bad', 0), makeJob('good', 0)])
+    return useEncodingSession({
+      queuedJobs: jobs,
+      setQueuedJobs: setJobs,
+      selectedJobIds: ['bad', 'good'],
+      setSelectedJobIds: jest.fn(),
+      maxConcurrency: 1,
+      ffmpegPath: undefined,
+      config: baseConfig,
+      continueOnError: true
+    })
+  })
+  await act(async () => result.current.handleStartEncoding())
+  await waitFor(() =>
+    expect(result.current.encodingSummary).toEqual(
+      expect.objectContaining({ successful: 1, failed: 1, pending: 0 })
+    )
+  )
+})

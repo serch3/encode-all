@@ -20,6 +20,9 @@ interface GeneralPageProps {
   encodingSummary?: EncodingSummary | null
   onDismissSummary?: () => void
   onReviewFailed?: () => void
+  onOpenHistory?: () => void
+  onPause?: () => void
+  isPaused?: boolean
 }
 
 export default function GeneralPage({
@@ -37,7 +40,10 @@ export default function GeneralPage({
   onDismissProgress,
   encodingSummary,
   onDismissSummary,
-  onReviewFailed
+  onReviewFailed,
+  onOpenHistory,
+  onPause,
+  isPaused
 }: GeneralPageProps): React.JSX.Element {
   return (
     <div className="flex flex-col h-full relative">
@@ -50,6 +56,7 @@ export default function GeneralPage({
               if (onDismissProgress) onDismissProgress()
             }}
             onReviewFailed={onReviewFailed}
+            onOpenHistory={onOpenHistory}
           />
         ) : showProgressPage ? (
           <EncodingProgressPage
@@ -57,6 +64,8 @@ export default function GeneralPage({
             currentFile={currentEncodingFile}
             logs={logs}
             onCancel={onCancel}
+            onPause={onPause}
+            isPaused={isPaused}
             isEncoding={isEncoding}
             encodingError={encodingError}
             eta={eta}

@@ -1,3 +1,4 @@
+import { withTargetSize } from '../../../shared/targetSize'
 import type { EncodingOptions, QueuedJob } from '../types'
 import type { EncodingConfig } from '../hooks/useEncodingConfig'
 import { buildFilenameFromPattern } from './pattern'
@@ -35,7 +36,8 @@ export function previewEncodingOptions(
   ffmpegPath?: string
 ): EncodingOptions {
   const overrides = job.overrides
-  return {
+  const rateControlMode = overrides?.rateControlMode ?? config.rateControlMode
+  const options: EncodingOptions = {
     inputPath: job.file.path,
     outputPath: '',
     container: overrides?.container ?? config.container,
@@ -51,8 +53,23 @@ export function previewEncodingOptions(
     twoPass: overrides?.twoPass ?? config.twoPass,
     subtitleMode: overrides?.subtitleMode ?? config.subtitleMode,
     videoBitrate: overrides?.videoBitrate ?? config.videoBitrate,
-    rateControlMode: overrides?.rateControlMode ?? config.rateControlMode,
+    rateControlMode,
+    targetSizeMb:
+      (rateControlMode === 'bitrate' ? (overrides?.targetSizeMb ?? config.targetSizeMb) : 0) ||
+      undefined,
+    pixelFormat: overrides?.pixelFormat ?? config.pixelFormat,
+    maxHeight: (overrides?.maxHeight ?? config.maxHeight) || undefined,
+    audioStreamIndex: overrides?.audioStreamIndex,
+    subtitleStreamIndex: overrides?.subtitleStreamIndex,
     enableLogging: false,
     ffmpegPath
   }
+  if (options.targetSizeMb && job.mediaInfo) {
+    try {
+      return withTargetSize(options, job.mediaInfo)
+    } catch {
+      /* Review displays invalid target budgets. */
+    }
+  }
+  return options
 }

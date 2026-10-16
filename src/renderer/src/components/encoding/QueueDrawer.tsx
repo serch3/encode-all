@@ -1,3 +1,4 @@
+import { VIDEO_ENCODERS, maxQualityFor } from '../../../../shared/encoders'
 import React from 'react'
 import {
   Drawer,
@@ -75,6 +76,9 @@ interface QueueDrawerProps {
   ) => void
   hasNvidiaGpu?: boolean
   supportedNvidiaEncoders?: string[]
+  supportedEncoders?: string[]
+  continueOnError?: boolean
+  onContinueOnErrorChange?: (value: boolean) => void
 }
 
 export default function QueueDrawer({
@@ -106,7 +110,10 @@ export default function QueueDrawer({
   setMaxRetries,
   onUpdateJobOverrides,
   hasNvidiaGpu = false,
-  supportedNvidiaEncoders
+  supportedNvidiaEncoders,
+  supportedEncoders,
+  continueOnError,
+  onContinueOnErrorChange
 }: QueueDrawerProps): React.JSX.Element {
   const formatFileSize = (bytes: number): string => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB']
@@ -230,9 +237,8 @@ export default function QueueDrawer({
     )
   }
 
-  const isSelected = (jobId: string): boolean => {
-    return selectedJobIds.includes(jobId)
-  }
+  const selectedSet = React.useMemo(() => new Set(selectedJobIds), [selectedJobIds])
+  const isSelected = (jobId: string): boolean => selectedSet.has(jobId)
 
   const totalSize = jobs.reduce((acc, j) => acc + j.file.size, 0)
   const formatTotalSize = formatFileSize(totalSize)
@@ -245,6 +251,11 @@ export default function QueueDrawer({
       (!query || job.file.name.toLowerCase().includes(query)) &&
       (statusFilter === 'all' || job.status === statusFilter)
   )
+  const [page, setPage] = React.useState(0)
+  const visibleRows = filtered.slice(page * 50, (page + 1) * 50)
+  React.useEffect(() => {
+    setPage(0)
+  }, [query, statusFilter, jobs.length])
   const clearFilters = (): void => {
     setSearch('')
     setStatusFilter('all')
@@ -317,6 +328,18 @@ export default function QueueDrawer({
         </DrawerHeader>
 
         <DrawerBody className="min-h-0 overflow-hidden gap-3">
+          {onContinueOnErrorChange && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={!!continueOnError}
+                disabled={isEncoding || isLocked}
+                onChange={(event) => onContinueOnErrorChange(event.target.checked)}
+              />
+              Continue with other files after an error
+            </label>
+          )}
+
           {removedCount > 0 && (
             <div
               role="status"
@@ -514,8 +537,33 @@ export default function QueueDrawer({
               </div>
             ) : (
               <div className="px-4 py-2 w-full">
+                {filtered.length > 50 && (
+                  <div className="flex items-center gap-2 mb-3">
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      isDisabled={page === 0}
+                      onPress={() => setPage((value) => value - 1)}
+                    >
+                      Previous files
+                    </Button>
+                    <span className="text-xs text-default-500">
+                      {page * 50 + 1}–{Math.min((page + 1) * 50, filtered.length)} of{' '}
+                      {filtered.length}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      isDisabled={(page + 1) * 50 >= filtered.length}
+                      onPress={() => setPage((value) => value + 1)}
+                    >
+                      Next files
+                    </Button>
+                  </div>
+                )}
+
                 <div className="space-y-2 w-full">
-                  {filtered.map((job) => (
+                  {visibleRows.map((job) => (
                     <Card
                       key={job.id}
                       className={`transition-shadow duration-150 border-0 shadow-sm w-full min-w-0 ${
@@ -711,22 +759,17 @@ export default function QueueDrawer({
                   handleOverrideChange('videoCodec', Array.from(keys)[0] as string)
                 }
               >
-                {[
-                  { key: 'libx264', label: 'H.264 (libx264)' },
-                  { key: 'libx265', label: 'H.265 (libx265)' },
-                  { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
-                  { key: 'copy', label: 'Copy (no re-encode)' },
-                  ...(hasNvidiaGpu
-                    ? [
-                        { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
-                        { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
-                        { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
-                      ].filter(
-                        (codec) =>
-                          !supportedNvidiaEncoders || supportedNvidiaEncoders.includes(codec.key)
-                      )
-                    : [])
-                ].map((codec) => (
+                {VIDEO_ENCODERS.filter(
+                  (encoder) =>
+                    encoder.backend === 'copy' ||
+                    (supportedEncoders
+                      ? supportedEncoders.includes(encoder.key)
+                      : encoder.backend === 'software' ||
+                        (encoder.backend === 'nvidia' &&
+                          hasNvidiaGpu &&
+                          (!supportedNvidiaEncoders ||
+                            supportedNvidiaEncoders.includes(encoder.key))))
+                ).map((codec) => (
                   <SelectItem key={codec.key}>{codec.label}</SelectItem>
                 ))}
               </Select>
@@ -769,6 +812,7 @@ export default function QueueDrawer({
               ) : (
                 <Input
                   label="CRF/CQ"
+                  max={maxQualityFor(overrideForm.videoCodec ?? '')}
                   placeholder="Use batch setting"
                   type="number"
                   value={overrideForm.crf?.toString() ?? ''}
@@ -808,7 +852,62 @@ export default function QueueDrawer({
               >
                 <SelectItem key="none">None (Remove Subtitles)</SelectItem>
                 <SelectItem key="copy">Passthrough (Copy All)</SelectItem>
+                <SelectItem key="text">Convert text subtitles</SelectItem>
               </Select>
+              {editingJob?.mediaInfo && (
+                <>
+                  <Select
+                    label="Audio stream"
+                    placeholder="Use batch track selection"
+                    selectedKeys={
+                      overrideForm.audioStreamIndex === undefined
+                        ? []
+                        : [String(overrideForm.audioStreamIndex)]
+                    }
+                    onSelectionChange={(keys) => {
+                      const value = Array.from(keys)[0]
+                      handleOverrideChange(
+                        'audioStreamIndex',
+                        value === undefined ? undefined : Number(value)
+                      )
+                    }}
+                  >
+                    {editingJob.mediaInfo.streams
+                      .filter((stream) => stream.codec_type === 'audio')
+                      .map((stream) => (
+                        <SelectItem key={String(stream.index)}>
+                          Track {stream.index}: {stream.tags?.language ?? 'unknown language'} ·{' '}
+                          {stream.codec_name}
+                        </SelectItem>
+                      ))}
+                  </Select>
+                  <Select
+                    label="Subtitle stream"
+                    placeholder="All source subtitles"
+                    selectedKeys={
+                      overrideForm.subtitleStreamIndex === undefined
+                        ? []
+                        : [String(overrideForm.subtitleStreamIndex)]
+                    }
+                    onSelectionChange={(keys) => {
+                      const value = Array.from(keys)[0]
+                      handleOverrideChange(
+                        'subtitleStreamIndex',
+                        value === undefined ? undefined : Number(value)
+                      )
+                    }}
+                  >
+                    {editingJob.mediaInfo.streams
+                      .filter((stream) => stream.codec_type === 'subtitle')
+                      .map((stream) => (
+                        <SelectItem key={String(stream.index)}>
+                          Track {stream.index}: {stream.tags?.language ?? 'unknown language'} ·{' '}
+                          {stream.codec_name}
+                        </SelectItem>
+                      ))}
+                  </Select>
+                </>
+              )}
               <Select
                 label="Two-pass encoding"
                 placeholder="Use batch setting"

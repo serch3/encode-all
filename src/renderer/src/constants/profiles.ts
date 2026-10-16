@@ -18,7 +18,9 @@ const defaults: Omit<
   twoPass: false,
   subtitleMode: 'none',
   videoBitrate: 2500,
-  rateControlMode: 'crf'
+  rateControlMode: 'crf',
+  pixelFormat: 'compatible',
+  maxHeight: 0
 }
 
 export const STARTER_PROFILES: StarterProfile[] = [
@@ -46,6 +48,7 @@ export const STARTER_PROFILES: StarterProfile[] = [
     ...defaults,
     id: 'starter-compact-hevc',
     name: 'Compact HEVC',
+    pixelFormat: 'preserve',
     container: 'mkv',
     videoCodec: 'libx265',
     crf: 25,
@@ -68,6 +71,9 @@ export const STARTER_PROFILES: StarterProfile[] = [
 
 export function profileSettingsKey(profile: Omit<EncodingProfile, 'id' | 'name'>): string {
   return JSON.stringify([
+    profile.targetSizeMb ?? 0,
+    profile.pixelFormat ?? 'compatible',
+    profile.maxHeight ?? 0,
     profile.container,
     profile.videoCodec,
     profile.audioCodec,

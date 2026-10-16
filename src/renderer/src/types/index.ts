@@ -23,6 +23,7 @@ export interface EncodingSummary {
   successful: number
   failed: number
   canceled: number
+  pending?: number
   startTime: number
   endTime: number
   outputDirectory: string
@@ -79,6 +80,9 @@ export interface EncodingConfig {
  * Saved encoding profile
  */
 export interface EncodingProfile {
+  targetSizeMb?: number
+  pixelFormat?: 'compatible' | 'preserve'
+  maxHeight?: number
   id: string
   name: string
   container: string
@@ -113,4 +117,7 @@ export interface QueuedJob {
   mediaInfo?: MediaInfo
   /** True if ffprobe failed for this file */
   mediaInfoError?: boolean
+  outputPath?: string
+  outputSize?: number
+  elapsedMs?: number
 }

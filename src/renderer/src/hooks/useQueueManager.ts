@@ -1,7 +1,8 @@
-import { useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useLocalStorage } from './useLocalStorage'
 import type { QueuedJob, VideoFile, EncodingOptions } from '../types'
 import { MAX_QUEUE_CONCURRENCY, MAX_QUEUE_RETRIES } from '../constants/queue'
+import { maxQualityFor } from '../../../shared/encoders'
 import { filePathKey } from '../../../shared/filePaths'
 
 export interface QueueFeedback {
@@ -16,8 +17,94 @@ export interface QueueFeedback {
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function useQueueManager(ffmpegPath: string | undefined) {
   const platform = window.electron?.process.platform ?? 'unknown'
-  const [queuedJobs, setQueuedJobs] = useLocalStorage<QueuedJob[]>('queue-state', [])
+  const [queuedJobs, setQueuedJobs] = useState<QueuedJob[]>(() => {
+    try {
+      return restoreQueue(JSON.parse(localStorage.getItem('queue-state') ?? '[]'))
+    } catch {
+      return []
+    }
+  })
+  const [isRestoring, setIsRestoring] = useState(true)
+  const [storageError, setStorageError] = useState<string | null>(null)
+  const lastSaved = useRef(queuedJobs)
+  const restoredIds = useRef(new Set<string>())
+  const lastProbePath = useRef(ffmpegPath)
+  const latestJobs = useRef(queuedJobs)
+  latestJobs.current = queuedJobs
+  const changedBeforeRestore = useRef(false)
+  if (durableQueueChanged(lastSaved.current, queuedJobs)) changedBeforeRestore.current = true
+  useEffect(() => {
+    restoredIds.current = new Set(latestJobs.current.map((job) => job.id))
+    let current = true
+    void window.api
+      .loadQueueState()
+      .then((saved) => {
+        if (!current) return
+        if (saved !== null && saved !== undefined) {
+          if (!Array.isArray(saved)) throw new Error('The saved queue has an invalid format.')
+          const restored = restoreQueue(saved)
+          if (saved.length && !restored.length)
+            throw new Error('The saved queue contains no readable jobs.')
+          restoredIds.current = new Set(restored.map((job) => job.id))
+          if (!changedBeforeRestore.current) {
+            lastSaved.current = restored
+            setQueuedJobs(restored)
+          } else {
+            setQueuedJobs((existing) => {
+              const paths = new Set(existing.map((job) => filePathKey(job.file.path, platform)))
+              return [
+                ...restored.filter((job) => !paths.has(filePathKey(job.file.path, platform))),
+                ...existing
+              ]
+            })
+          }
+        }
+      })
+      .catch((error) => {
+        if (current)
+          setStorageError(
+            error instanceof Error ? error.message : 'Could not restore the saved queue.'
+          )
+      })
+      .finally(() => {
+        if (current) setIsRestoring(false)
+      })
+    return () => {
+      current = false
+    }
+  }, [platform])
+  useEffect(() => {
+    if (isRestoring || !durableQueueChanged(lastSaved.current, queuedJobs)) return
+    lastSaved.current = queuedJobs
+    // Progress and media metadata stay in memory. Save only durable job transitions.
+    const snapshot = queuedJobs.map((job) => ({
+      id: job.id,
+      file: job.file,
+      status: job.status,
+      progress: 0,
+      attempts: job.attempts,
+      maxRetries: job.maxRetries,
+      error: job.error,
+      overrides: job.overrides,
+      outputPath: job.outputPath,
+      outputSize: job.outputSize,
+      elapsedMs: job.elapsedMs
+    }))
+    void window.api
+      .saveQueueState(snapshot)
+      .then(() => {
+        setStorageError(null)
+        localStorage.removeItem('queue-state')
+      })
+      .catch((error) =>
+        setStorageError(error instanceof Error ? error.message : 'Could not save the queue.')
+      )
+  }, [queuedJobs, isRestoring])
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([])
+  const [continueOnError, setContinueOnError] = useLocalStorage<boolean>(
+    'queue-continue-on-error',
+    false
+  )
   const [storedMaxRetries, setStoredMaxRetries] = useLocalStorage<number>('queue-max-retries', 2)
   const [storedMaxConcurrency, setStoredMaxConcurrency] = useLocalStorage<number>(
     'queue-max-concurrency',
@@ -45,28 +132,75 @@ export function useQueueManager(ffmpegPath: string | undefined) {
     )
   }
 
-  const probeNewJobs = async (newJobs: QueuedJob[]): Promise<void> => {
-    const PROBE_CONCURRENCY = 8
-    let index = 0
-    const runWorker = async (): Promise<void> => {
-      while (index < newJobs.length) {
-        const job = newJobs[index++]
-        try {
-          const info = await window.api.probeFile(job.file.path, ffmpegPath)
-          setQueuedJobs((prev) =>
-            prev.map((j) => (j.id === job.id ? { ...j, mediaInfo: info } : j))
-          )
-        } catch {
-          setQueuedJobs((prev) =>
-            prev.map((j) => (j.id === job.id ? { ...j, mediaInfoError: true } : j))
-          )
+  const pendingProbes = useRef<Array<{ job: QueuedJob; path: string | undefined }>>([])
+  const probing = useRef(new Set<string>())
+  const activeProbes = useRef(0)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      pendingProbes.current = []
+    }
+  }, [])
+  const probeNewJobs = useCallback(
+    (newJobs: QueuedJob[]): void => {
+      for (const job of newJobs) {
+        const key = `${job.id}:${ffmpegPath ?? ''}`
+        if (probing.current.has(key)) continue
+        probing.current.add(key)
+        pendingProbes.current.push({ job, path: ffmpegPath })
+      }
+      const drain = (): void => {
+        while (mounted.current && activeProbes.current < 4 && pendingProbes.current.length) {
+          const work = pendingProbes.current.shift()!
+          activeProbes.current += 1
+          void window.api
+            .probeFile(work.job.file.path, work.path)
+            .then((info) => {
+              if (mounted.current)
+                setQueuedJobs((prev) =>
+                  prev.map((job) =>
+                    job.id === work.job.id
+                      ? { ...job, mediaInfo: info, mediaInfoError: false }
+                      : job
+                  )
+                )
+            })
+            .catch(() => {
+              if (mounted.current)
+                setQueuedJobs((prev) =>
+                  prev.map((job) =>
+                    job.id === work.job.id ? { ...job, mediaInfoError: true } : job
+                  )
+                )
+            })
+            .finally(() => {
+              activeProbes.current -= 1
+              probing.current.delete(`${work.job.id}:${work.path ?? ''}`)
+              drain()
+            })
         }
       }
-    }
-    await Promise.all(
-      Array.from({ length: Math.min(PROBE_CONCURRENCY, newJobs.length) }, runWorker)
+      // Let the enqueue state update become visible before scheduling probes.
+      queueMicrotask(drain)
+    },
+    [ffmpegPath]
+  )
+  useEffect(() => {
+    if (isRestoring || !ffmpegPath) return
+    const pathChanged = lastProbePath.current !== ffmpegPath
+    lastProbePath.current = ffmpegPath
+    probeNewJobs(
+      latestJobs.current.filter(
+        (job) =>
+          (pathChanged || restoredIds.current.has(job.id)) && (!job.mediaInfo || job.mediaInfoError)
+      )
     )
-  }
+    restoredIds.current.clear()
+  }, [ffmpegPath, isRestoring, probeNewJobs])
+  const retryMediaInfo = (): void =>
+    probeNewJobs(latestJobs.current.filter((job) => !job.mediaInfo || job.mediaInfoError))
 
   const enqueueFiles = (files: VideoFile[]): void => {
     if (files.length === 0) return
@@ -254,10 +388,14 @@ export function useQueueManager(ffmpegPath: string | undefined) {
     setSelectedJobIds,
     maxRetries,
     setMaxRetries,
+    continueOnError,
+    setContinueOnError,
     maxConcurrency,
     setMaxConcurrency,
     isQueueOpen,
-    queueFeedback,
+    queueFeedback: storageError ? { message: storageError, isError: true } : queueFeedback,
+    isRestoring,
+    retryMediaInfo,
     isLoadingQueue,
     removedCount: removedJobs.length,
     handleUndoRemove,
@@ -358,9 +496,33 @@ function sanitizeOverrides(value: unknown): Partial<EncodingOptions> | undefined
 
   setNumberOverride(overrides, 'audioBitrate', value.audioBitrate, 0, 2000)
   setNumberOverride(overrides, 'volumeDb', value.volumeDb, -60, 60)
-  setNumberOverride(overrides, 'crf', value.crf, 0, 51)
+  setNumberOverride(
+    overrides,
+    'crf',
+    value.crf,
+    0,
+    typeof value.videoCodec === 'string' ? maxQualityFor(value.videoCodec) : 63
+  )
   setNumberOverride(overrides, 'threads', value.threads, 0, 64)
   setNumberOverride(overrides, 'videoBitrate', value.videoBitrate, 1, 1_000_000)
+  if (value.pixelFormat === 'compatible' || value.pixelFormat === 'preserve')
+    overrides.pixelFormat = value.pixelFormat
+  if (
+    typeof value.targetSizeMb === 'number' &&
+    Number.isFinite(value.targetSizeMb) &&
+    value.targetSizeMb >= 0 &&
+    value.targetSizeMb <= 1000000
+  )
+    overrides.targetSizeMb = value.targetSizeMb
+  for (const field of ['maxHeight', 'audioStreamIndex', 'subtitleStreamIndex'] as const) {
+    if (
+      typeof value[field] === 'number' &&
+      Number.isInteger(value[field]) &&
+      value[field] >= 0 &&
+      value[field] <= 10000
+    )
+      overrides[field] = value[field]
+  }
 
   return Object.keys(overrides).length > 0 ? overrides : undefined
 }
@@ -376,6 +538,49 @@ function setNumberOverride(
   max: number
 ): void {
   if (typeof value === 'number' && Number.isFinite(value)) {
-    overrides[field] = clampInteger(value, min, max)
+    overrides[field] =
+      field === 'volumeDb' ? Math.min(max, Math.max(min, value)) : clampInteger(value, min, max)
   }
+}
+
+function restoreQueue(value: unknown): QueuedJob[] {
+  if (!Array.isArray(value)) return []
+  const ids = new Set<string>()
+  return value.flatMap((item) => {
+    const job = sanitizeLoadedJob(item, 2)
+    if (!job) return []
+    if (ids.has(job.id)) job.id = crypto.randomUUID()
+    ids.add(job.id)
+    const original = item as QueuedJob
+    return [
+      {
+        ...job,
+        status: ['complete', 'error', 'canceled'].includes(original.status)
+          ? original.status
+          : 'pending',
+        error: typeof original.error === 'string' ? original.error : undefined,
+        outputPath: typeof original.outputPath === 'string' ? original.outputPath : undefined,
+        outputSize: typeof original.outputSize === 'number' ? original.outputSize : undefined,
+        elapsedMs: typeof original.elapsedMs === 'number' ? original.elapsedMs : undefined
+      }
+    ]
+  })
+}
+
+export function durableQueueChanged(previous: QueuedJob[], next: QueuedJob[]): boolean {
+  if (previous.length !== next.length) return true
+  return next.some((job, index) => {
+    const old = previous[index]
+    return (
+      old !== job &&
+      (old.id !== job.id ||
+        old.file !== job.file ||
+        old.status !== job.status ||
+        old.attempts !== job.attempts ||
+        old.maxRetries !== job.maxRetries ||
+        old.error !== job.error ||
+        old.overrides !== job.overrides ||
+        old.outputPath !== job.outputPath)
+    )
+  })
 }

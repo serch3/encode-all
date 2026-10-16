@@ -1,5 +1,8 @@
+import HistoryPage from './components/pages/HistoryPage'
+import QueueWorkspace from './components/encoding/QueueWorkspace'
 import { Button, Card, CardBody, Input } from '@heroui/react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { isHardwareEncoder } from '../../shared/encoders'
 import { useEncodingConfig } from './hooks/useEncodingConfig'
 import { useQueueManager } from './hooks/useQueueManager'
 import { useEncodingSession } from './hooks/useEncodingSession'
@@ -35,14 +38,18 @@ function readSavedFfmpegPath(): string | undefined {
 
 function App(): React.JSX.Element {
   const [showFfmpegPreview, setShowFfmpegPreview] = useState<boolean>(false)
-  const [active, setActive] = useState<'general' | 'preview' | 'settings' | 'about'>('general')
+  const [active, setActive] = useState<'general' | 'preview' | 'settings' | 'about' | 'history'>(
+    'general'
+  )
   const [showFfmpegSetup, setShowFfmpegSetup] = useState<boolean>(false)
   const [ffmpegChecked, setFfmpegChecked] = useState<boolean>(false)
+  const [supportedEncoders, setSupportedEncoders] = useState<string[] | undefined>()
   const [hasNvidiaGpu, setHasNvidiaGpu] = useState<boolean>(false)
   const [supportedNvidiaEncoders, setSupportedNvidiaEncoders] = useState<string[] | undefined>()
   const [isCheckingHardware, setIsCheckingHardware] = useState(true)
   const [ffmpegPath, setFfmpegPath] = useState<string | undefined>(readSavedFfmpegPath)
   const [showProgressPage, setShowProgressPage] = useState<boolean>(false)
+  const [nativePaths, setNativePaths] = useState<string[]>([])
   const [importBusy, setImportBusy] = useState(false)
   const [fileError, setFileError] = useState<string | null>(null)
   const [outputError, setOutputError] = useState<string | null>(null)
@@ -56,6 +63,7 @@ function App(): React.JSX.Element {
     selectedJobIds: queue.selectedJobIds,
     setSelectedJobIds: queue.setSelectedJobIds,
     maxConcurrency: queue.maxConcurrency,
+    continueOnError: queue.continueOnError,
     ffmpegPath,
     config
   })
@@ -63,12 +71,19 @@ function App(): React.JSX.Element {
     jobs: queue.queuedJobs,
     config,
     ffmpegPath,
-    ready: ffmpegChecked && !isCheckingHardware,
+    ready: ffmpegChecked,
     checking: isCheckingHardware,
     isEncoding: session.isEncoding,
     supportedNvidiaEncoders
   })
   const previewBusy = preview.busy
+
+  const handleEncoderSupportChange = useCallback((encoders: string[]): void => {
+    setSupportedEncoders(encoders)
+    const nvidia = encoders.filter((codec) => codec.includes('nvenc'))
+    setSupportedNvidiaEncoders(nvidia)
+    setHasNvidiaGpu(nvidia.length > 0)
+  }, [])
 
   const handleFfmpegPathSelected = (path: string): void => {
     setFfmpegPath(path)
@@ -85,6 +100,7 @@ function App(): React.JSX.Element {
     setFfmpegChecked(false)
     setHasNvidiaGpu(false)
     setSupportedNvidiaEncoders(undefined)
+    setSupportedEncoders(undefined)
     setIsCheckingHardware(true)
     void (async () => {
       try {
@@ -94,9 +110,11 @@ function App(): React.JSX.Element {
         setFfmpegChecked(status.isInstalled)
         if (status.isInstalled) {
           if (status.path && status.path !== ffmpegPath) handleFfmpegPathSelected(status.path)
-          const supported = await window.api.getSupportedNvidiaEncoders(status.path ?? ffmpegPath)
+          const all = await window.api.getSupportedEncoders(status.path ?? ffmpegPath)
+          const supported = all.filter((codec) => codec.includes('nvenc'))
           if (current) {
             setSupportedNvidiaEncoders(supported)
+            setSupportedEncoders(all)
             setHasNvidiaGpu(supported.length > 0)
           }
         } else {
@@ -150,6 +168,59 @@ function App(): React.JSX.Element {
     }
   }
 
+  const handleSelectFiles = async (): Promise<void> => {
+    if (importBusy || session.isEncoding || previewBusy) return
+    setImportBusy(true)
+    setFileError(null)
+    try {
+      const files = await window.api.selectVideoFiles()
+      if (files.length) queue.enqueueFiles(files)
+    } catch (error) {
+      setFileError(error instanceof Error ? error.message : 'Could not add videos.')
+    } finally {
+      setImportBusy(false)
+    }
+  }
+
+  useEffect(
+    () =>
+      window.api.onNativeImport((paths) => setNativePaths((previous) => [...previous, ...paths])),
+    []
+  )
+  useEffect(() => {
+    if (!nativePaths.length || importBusy || session.isEncoding || previewBusy || queue.isRestoring)
+      return
+    setImportBusy(true)
+    const paths = nativePaths
+    setNativePaths([])
+    void window.api
+      .importPaths(paths)
+      .then((files) => {
+        if (files.length) queue.enqueueFiles(files)
+        else setFileError('No supported videos were found in these files or folders.')
+      })
+      .catch((error) =>
+        setFileError(error instanceof Error ? error.message : 'Could not add videos.')
+      )
+      .finally(() => setImportBusy(false))
+    // Imports enqueue once; subsequent queue renders must not restart the scan.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nativePaths, importBusy, session.isEncoding, previewBusy, queue.isRestoring])
+
+  const handleWorkspaceDrop = (event: React.DragEvent): void => {
+    if (!event.dataTransfer.files.length) return
+    event.preventDefault()
+    if (session.isEncoding || previewBusy || importBusy) return
+    try {
+      const paths = Array.from(event.dataTransfer.files)
+        .map((file) => window.api.getPathForFile(file))
+        .filter(Boolean)
+      setNativePaths((previous) => [...previous, ...paths])
+    } catch {
+      setFileError('Could not read the dropped files. Use Add files or Add folder.')
+    }
+  }
+
   const handleSelectOutputDirectory = async (): Promise<void> => {
     try {
       setOutputError(null)
@@ -171,6 +242,9 @@ function App(): React.JSX.Element {
   }
 
   const handleLoadProfile = (profile: EncodingProfile): void => {
+    config.setPixelFormat(profile.pixelFormat ?? 'compatible')
+    config.setTargetSizeMb(profile.targetSizeMb ?? 0)
+    config.setMaxHeight(profile.maxHeight ?? 0)
     config.setContainer(profile.container)
     config.setVideoCodec(profile.videoCodec)
     config.setAudioCodec(profile.audioCodec)
@@ -203,11 +277,16 @@ function App(): React.JSX.Element {
   }
 
   const isNvenc = config.videoCodec.includes('nvenc')
-  const selectedJobs = queue.queuedJobs.filter((job) => queue.selectedJobIds.includes(job.id))
+  const selectedIds = useMemo(() => new Set(queue.selectedJobIds), [queue.selectedJobIds])
+  const selectedJobs = useMemo(
+    () => queue.queuedJobs.filter((job) => selectedIds.has(job.id)),
+    [queue.queuedJobs, selectedIds]
+  )
   const runnableJobs = selectedJobs.filter((job) =>
     ['pending', 'error', 'canceled'].includes(job.status)
   )
-  const encoderReady = ffmpegChecked && !isCheckingHardware
+  const encoderReady =
+    ffmpegChecked && (!isCheckingHardware || !isHardwareEncoder(config.videoCodec))
   const batchReview = useBatchReview(
     runnableJobs,
     queue.queuedJobs.map((job) => job.file.path),
@@ -221,6 +300,7 @@ function App(): React.JSX.Element {
     !session.isEncoding &&
     !importBusy &&
     !queue.isLoadingQueue &&
+    !queue.isRestoring &&
     runnableJobs.length > 0
   const handleReviewBatch = (): void => {
     if (!canStartBatch) return
@@ -235,7 +315,11 @@ function App(): React.JSX.Element {
     batchReview.close()
     setActive('general')
     setShowProgressPage(true)
-    session.handleStartEncoding(paths)
+    session.handleStartEncoding(
+      paths,
+      Object.fromEntries(batchReview.entries.map((entry) => [entry.jobId, entry.reviewToken])),
+      Object.fromEntries(batchReview.entries.map((entry) => [entry.jobId, entry.encoding]))
+    )
   }
   const startHint = session.isEncoding
     ? 'An encoding batch is running. View its progress from the queue.'
@@ -256,7 +340,13 @@ function App(): React.JSX.Element {
                   : `${runnableJobs.length} video${runnableJobs.length === 1 ? '' : 's'} ready. Review outputs before starting.`
 
   return (
-    <>
+    <div
+      className="contents"
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+      }}
+      onDrop={handleWorkspaceDrop}
+    >
       <Layout
         title="Encode All"
         active={active}
@@ -284,7 +374,7 @@ function App(): React.JSX.Element {
         {active === 'general' && (
           <GeneralPage
             encoderContent={
-              <div className="grid gap-4 grid-cols-1 min-[860px]:grid-cols-[minmax(240px,0.8fr)_minmax(0,1.5fr)] items-start">
+              <div className="grid gap-4 grid-cols-1 min-[1100px]:grid-cols-[minmax(380px,1.2fr)_minmax(360px,1fr)] items-start">
                 <div className="col-span-full">
                   <h1 className="text-2xl font-semibold tracking-tight">Encode videos</h1>
                   <p className="text-sm text-default-500">
@@ -292,14 +382,59 @@ function App(): React.JSX.Element {
                   </p>
                 </div>
                 <div className="flex flex-col gap-3 min-w-0">
-                  <DropZone
-                    isEncoding={session.isEncoding || previewBusy}
-                    isLoading={importBusy || queue.isLoadingQueue}
-                    queueCount={queue.queuedJobs.length}
-                    onFilesDropped={queue.enqueueFiles}
-                    onBrowseFolder={handleSelectFolder}
-                    onLoadSession={queue.handleLoadQueue}
-                  />
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      color="primary"
+                      onPress={() => void handleSelectFiles()}
+                      isDisabled={
+                        session.isEncoding || previewBusy || importBusy || queue.isRestoring
+                      }
+                    >
+                      Add files
+                    </Button>
+                    <Button
+                      variant="flat"
+                      onPress={() => void handleSelectFolder()}
+                      isDisabled={
+                        session.isEncoding || previewBusy || importBusy || queue.isRestoring
+                      }
+                    >
+                      Add folder
+                    </Button>
+                    <Button
+                      variant="light"
+                      onPress={() => void queue.handleLoadQueue()}
+                      isDisabled={session.isEncoding || previewBusy || queue.isLoadingQueue}
+                    >
+                      Load queue
+                    </Button>
+                  </div>
+                  {queue.queuedJobs.length === 0 && (
+                    <DropZone
+                      isEncoding={session.isEncoding || previewBusy}
+                      isLoading={importBusy || queue.isLoadingQueue}
+                      queueCount={queue.queuedJobs.length}
+                      onFilesDropped={queue.enqueueFiles}
+                      onBrowseFolder={handleSelectFolder}
+                      onLoadSession={queue.handleLoadQueue}
+                    />
+                  )}
+                  {queue.queuedJobs.length > 0 && (
+                    <QueueWorkspace
+                      jobs={queue.queuedJobs}
+                      selectedIds={queue.selectedJobIds}
+                      locked={session.isEncoding || previewBusy || importBusy || queue.isRestoring}
+                      onSelect={queue.handleFileSelect}
+                      onSelectAll={() => queue.handleSelectAll()}
+                      onManage={() => queue.setIsQueueOpen(true)}
+                      onPreview={(id) => {
+                        preview.setSelectedId(id)
+                        setActive('preview')
+                      }}
+                      onRetryMetadata={queue.retryMediaInfo}
+                    />
+                  )}
+
                   <Button variant="flat" color="primary" onPress={() => queue.setIsQueueOpen(true)}>
                     {queue.queuedJobs.length > 0
                       ? `Review queue · ${selectedJobs.length} of ${queue.queuedJobs.length} selected`
@@ -328,6 +463,9 @@ function App(): React.JSX.Element {
                       <ProfileManager
                         isDisabled={session.isEncoding || previewBusy}
                         currentSettings={{
+                          targetSizeMb: config.targetSizeMb,
+                          pixelFormat: config.pixelFormat,
+                          maxHeight: config.maxHeight,
                           container: config.container,
                           videoCodec: config.videoCodec,
                           audioCodec: config.audioCodec,
@@ -350,6 +488,12 @@ function App(): React.JSX.Element {
                         onDeleteProfile={handleDeleteProfile}
                       />
                       <EncodingSettings
+                        targetSizeMb={config.targetSizeMb}
+                        setTargetSizeMb={config.setTargetSizeMb}
+                        pixelFormat={config.pixelFormat}
+                        setPixelFormat={config.setPixelFormat}
+                        maxHeight={config.maxHeight}
+                        setMaxHeight={config.setMaxHeight}
                         container={config.container}
                         setContainer={config.setContainer}
                         videoCodec={config.videoCodec}
@@ -380,6 +524,7 @@ function App(): React.JSX.Element {
                         setSubtitleMode={config.setSubtitleMode}
                         isEncoding={session.isEncoding || previewBusy}
                         hasNvidiaGpu={hasNvidiaGpu}
+                        supportedEncoders={supportedEncoders}
                         supportedNvidiaEncoders={supportedNvidiaEncoders}
                         isCheckingHardware={isCheckingHardware}
                         isNvenc={isNvenc}
@@ -488,6 +633,8 @@ function App(): React.JSX.Element {
             }
             logs={session.encodingLogs}
             onCancel={session.handleCancelEncoding}
+            onPause={session.handlePauseEncoding}
+            isPaused={session.isPaused}
             isEncoding={session.isEncoding}
             encodingProgress={session.encodingProgress}
             currentEncodingFile={session.currentEncodingFile}
@@ -503,6 +650,7 @@ function App(): React.JSX.Element {
               session.setEncodingSummary(null)
               setShowProgressPage(false)
             }}
+            onOpenHistory={() => setActive('history')}
             onReviewFailed={() => {
               session.setEncodingSummary(null)
               setShowProgressPage(false)
@@ -520,6 +668,9 @@ function App(): React.JSX.Element {
         )}
         {active === 'settings' && (
           <SettingsPage
+            isEncoding={session.isEncoding || previewBusy}
+            supportedEncoders={supportedEncoders}
+            onEncoderSupportChange={handleEncoderSupportChange}
             showFfmpegPreview={showFfmpegPreview}
             onShowFfmpegPreviewChange={setShowFfmpegPreview}
             hasNvidiaGpu={hasNvidiaGpu}
@@ -533,10 +684,14 @@ function App(): React.JSX.Element {
             onOpenFfmpegSetup={() => setShowFfmpegSetup(true)}
           />
         )}
+        {active === 'history' && <HistoryPage />}
         {active === 'about' && <AboutPage />}
       </Layout>
 
       <QueueDrawer
+        continueOnError={queue.continueOnError}
+        onContinueOnErrorChange={queue.setContinueOnError}
+        supportedEncoders={supportedEncoders}
         isOpen={queue.isQueueOpen}
         onClose={() => queue.setIsQueueOpen(false)}
         jobs={queue.queuedJobs}
@@ -587,7 +742,7 @@ function App(): React.JSX.Element {
         ffmpegPath={ffmpegPath}
         onPathSelected={handleFfmpegPathSelected}
       />
-    </>
+    </div>
   )
 }
 

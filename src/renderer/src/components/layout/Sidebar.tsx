@@ -1,10 +1,10 @@
 import { Button, Divider, Tooltip } from '@heroui/react'
 import ThemeToggle from './ThemeToggle'
 import type React from 'react'
-import { Home, Settings, Info, List, Clapperboard } from 'lucide-react'
+import { Home, Settings, Info, List, Clapperboard, History } from 'lucide-react'
 
 type SidebarProps = {
-  active: 'general' | 'preview' | 'settings' | 'about'
+  active: 'general' | 'preview' | 'settings' | 'about' | 'history'
   onSelect: (key: SidebarProps['active']) => void
   onOpenQueue?: () => void
   queueStats?: { total: number; selected: number }
@@ -62,6 +62,18 @@ export default function Sidebar({
         </Button>
       </Tooltip>
 
+      <Tooltip content="Output history" placement="right" delay={300}>
+        <Button
+          aria-label="Output history"
+          aria-current={active === 'history' ? 'page' : undefined}
+          variant={active === 'history' ? 'flat' : 'light'}
+          onPress={() => onSelect('history')}
+          isIconOnly
+          className="w-12 h-12"
+        >
+          <History className="w-5 h-5" />
+        </Button>
+      </Tooltip>
       <Tooltip content="Settings" placement="right" delay={300}>
         <Button
           aria-label="Settings"

@@ -7,11 +7,11 @@ import type { EncodingProfile } from '../types'
  */
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 export function useEncodingConfig() {
-  const [container, setContainer] = useLocalStorage<string>('config-container', 'mkv')
-  const [videoCodec, setVideoCodec] = useLocalStorage<string>('config-videoCodec', 'libx265')
+  const [container, setContainer] = useLocalStorage<string>('config-container', 'mp4')
+  const [videoCodec, setVideoCodec] = useLocalStorage<string>('config-videoCodec', 'libx264')
   const [audioCodec, setAudioCodec] = useLocalStorage<string>('config-audioCodec', 'aac')
   const [audioChannels, setAudioChannels] = useLocalStorage<string>('config-audioChannels', 'same')
-  const [audioBitrate, setAudioBitrate] = useLocalStorage<number>('config-audioBitrate', 128)
+  const [audioBitrate, setAudioBitrate] = useLocalStorage<number>('config-audioBitrate', 160)
   const [volumeDb, setVolumeDb] = useLocalStorage<number>('config-volumeDb', 0)
   const [renamePattern, setRenamePattern] = useLocalStorage<string>(
     'config-renamePattern',
@@ -39,7 +39,19 @@ export function useEncodingConfig() {
   const [logDirectory, setLogDirectory] = useLocalStorage<string>('config-logDirectory', '')
   const [savedProfiles, setSavedProfiles] = useLocalStorage<EncodingProfile[]>('saved-profiles', [])
 
+  const [pixelFormat, setPixelFormat] = useLocalStorage<'compatible' | 'preserve'>(
+    'config-pixel-format',
+    'compatible'
+  )
+  const [maxHeight, setMaxHeight] = useLocalStorage<number>('config-max-height', 0)
+  const [targetSizeMb, setTargetSizeMb] = useLocalStorage<number>('config-target-size', 0)
   return {
+    targetSizeMb,
+    setTargetSizeMb,
+    pixelFormat,
+    setPixelFormat,
+    maxHeight,
+    setMaxHeight,
     container,
     setContainer,
     videoCodec,

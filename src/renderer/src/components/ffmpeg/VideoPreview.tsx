@@ -18,8 +18,24 @@ export default function VideoPreview({
 }: Props): React.JSX.Element {
   const [playbackError, setPlaybackError] = useState(false)
   const player = useRef<HTMLVideoElement>(null)
-  useEffect(() => setPlaybackError(false), [preview.result?.id])
+  const sourcePlayer = useRef<HTMLVideoElement>(null)
+  const [compare, setCompare] = useState(false)
+  const [sourceError, setSourceError] = useState(false)
+  useEffect(() => {
+    setPlaybackError(false)
+    setSourceError(false)
+    setCompare(false)
+  }, [preview.result?.id])
   const { job, encoding, result, busy } = preview
+  const syncSource = (play = false): void => {
+    const source = sourcePlayer.current
+    const output = player.current
+    if (!source || !output || sourceError) return
+    const position = (result?.sourceStartSeconds ?? 0) + output.currentTime
+    if (Math.abs(source.currentTime - position) > 0.15) source.currentTime = position
+    source.playbackRate = output.playbackRate
+    if (play) void source.play().catch(() => setSourceError(true))
+  }
   const stale = result && job && result.signature !== preview.signature
   return (
     <div className="flex flex-col gap-4 max-w-6xl mx-auto pb-4">
@@ -58,48 +74,98 @@ export default function VideoPreview({
           Settings changed. Generate a new preview to see the current quality.
         </p>
       )}
-      <div className="relative bg-black rounded-xl overflow-hidden h-[clamp(220px,42vh,460px)] flex items-center justify-center">
-        {result && !playbackError ? (
-          <video
-            ref={player}
-            key={result.id}
-            src={result.url}
-            controls
-            preload="metadata"
-            className="h-full w-full object-contain"
-            aria-label="Encoded quality preview"
-            onError={() => setPlaybackError(true)}
-          />
-        ) : (
-          <div className="flex flex-col items-center gap-3 px-6 text-center text-zinc-300">
-            {busy ? (
-              <Spinner size="lg" aria-label="Encoding preview sample" />
+      {result?.sourceUrl && (
+        <Button
+          className="self-start"
+          size="sm"
+          variant="flat"
+          aria-pressed={compare}
+          onPress={() => {
+            player.current?.pause()
+            sourcePlayer.current?.pause()
+            setCompare((value) => !value)
+          }}
+        >
+          Compare source and output
+        </Button>
+      )}
+      <div className={compare ? 'grid grid-cols-1 md:grid-cols-2 gap-3' : ''}>
+        {compare && result?.sourceUrl && (
+          <div className="relative bg-black rounded-xl overflow-hidden h-[clamp(220px,42vh,460px)] flex items-center justify-center">
+            <span className="absolute top-3 left-3 z-10 text-xs text-white bg-black/60 rounded px-2 py-1">
+              Source · muted
+            </span>
+            {!sourceError ? (
+              <video
+                ref={sourcePlayer}
+                src={result.sourceUrl}
+                muted
+                preload="metadata"
+                aria-label="Original source comparison"
+                className="h-full w-full object-contain"
+                onLoadedMetadata={() => syncSource()}
+                onError={() => setSourceError(true)}
+              />
             ) : (
-              <Clapperboard size={42} strokeWidth={1.5} className="text-zinc-500" />
-            )}
-            <p className="font-medium">
-              {busy
-                ? 'Encoding your sample…'
-                : playbackError
-                  ? 'This format needs a system player'
-                  : 'Your video preview appears here'}
-            </p>
-            <p className="text-sm text-zinc-400 max-w-md">
-              {busy
-                ? 'You can switch tabs while the sample is prepared.'
-                : playbackError
-                  ? 'Use Open in System Player below to inspect the encoded sample.'
-                  : job
-                    ? 'Choose a position and duration, then generate a sample with your current settings.'
-                    : 'Add a video to the queue to get started.'}
-            </p>
-            {!job && (
-              <Button variant="flat" onPress={onAdjustSettings}>
-                Add videos
-              </Button>
+              <p className="text-sm text-zinc-300 p-6 text-center">
+                This source format cannot play here. The encoded sample remains available.
+              </p>
             )}
           </div>
         )}
+        <div className="relative bg-black rounded-xl overflow-hidden h-[clamp(220px,42vh,460px)] flex items-center justify-center">
+          {compare && (
+            <span className="absolute top-3 left-3 z-10 text-xs text-white bg-black/60 rounded px-2 py-1">
+              Encoded sample · playback controls
+            </span>
+          )}
+          {result && !playbackError ? (
+            <video
+              ref={player}
+              key={result.id}
+              src={result.url}
+              controls
+              preload="metadata"
+              className="h-full w-full object-contain"
+              aria-label="Encoded quality preview"
+              onError={() => setPlaybackError(true)}
+              onPlay={() => syncSource(true)}
+              onPause={() => sourcePlayer.current?.pause()}
+              onSeeking={() => syncSource()}
+              onTimeUpdate={() => syncSource(!player.current?.paused)}
+              onRateChange={() => syncSource()}
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-3 px-6 text-center text-zinc-300">
+              {busy ? (
+                <Spinner size="lg" aria-label="Encoding preview sample" />
+              ) : (
+                <Clapperboard size={42} strokeWidth={1.5} className="text-zinc-500" />
+              )}
+              <p className="font-medium">
+                {busy
+                  ? 'Encoding your sample…'
+                  : playbackError
+                    ? 'This format needs a system player'
+                    : 'Your video preview appears here'}
+              </p>
+              <p className="text-sm text-zinc-400 max-w-md">
+                {busy
+                  ? 'You can switch tabs while the sample is prepared.'
+                  : playbackError
+                    ? 'Use Open in System Player below to inspect the encoded sample.'
+                    : job
+                      ? 'Choose a position and duration, then generate a sample with your current settings.'
+                      : 'Add a video to the queue to get started.'}
+              </p>
+              {!job && (
+                <Button variant="flat" onPress={onAdjustSettings}>
+                  Add videos
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       {busy && <Progress aria-label="Preview encoding progress" value={preview.progress} />}
       {result && (
@@ -208,7 +274,9 @@ export default function VideoPreview({
               {encoding.videoCodec === 'copy'
                 ? 'Original quality'
                 : encoding.rateControlMode === 'bitrate'
-                  ? `${encoding.videoBitrate} kbps`
+                  ? encoding.targetSizeMb
+                    ? `Target ${encoding.targetSizeMb} MB per file (approximate)`
+                    : `${encoding.videoBitrate} kbps`
                   : `Quality ${encoding.crf}`}{' '}
               · {encoding.audioCodec}. Includes this file’s queue overrides.
             </p>

@@ -1,16 +1,38 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, protocol } from 'electron'
-import { join } from 'path'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  protocol,
+  screen,
+  Menu,
+  Notification
+} from 'electron'
+import { join, basename, extname, isAbsolute } from 'path'
+import { fileURLToPath } from 'url'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import { writeFileSync, readFileSync, type Dirent, type Stats } from 'fs'
-import { readdir, stat } from 'fs/promises'
+import { type Dirent, type Stats } from 'fs'
+import { readdir, stat, readFile, writeFile } from 'fs/promises'
+import { createStateStore } from './stateStore'
+import { initializeHistory, getEncodingHistory, clearEncodingHistory } from './history'
 import icon from '../../resources/icon.png?asset'
-import { startEncoding, cancelEncoding } from './ffmpeg'
+import { startEncoding, cancelEncoding, hasActiveEncodings, waitForEncodings } from './ffmpeg'
 import { EncodingOptions, PreviewOptions, BatchReviewRequest } from '../preload/api.types'
 import { reviewBatchOutputs } from './batchReview'
+import { createReviewPlans } from './reviewPlans'
+import {
+  getUpdateState,
+  checkForUpdates,
+  downloadUpdate,
+  installUpdate,
+  onUpdateState
+} from './updates'
 import {
   checkFfmpegInstallation,
   checkNvidiaSupport,
   getSupportedNvidiaEncoders,
+  getSupportedEncoders,
   runBinary,
   resolveFfprobePath,
   getFfmpegInstaller,
@@ -25,6 +47,87 @@ import {
   previewResponse,
   cleanupPreviews
 } from './preview'
+
+const trustedWindows = new Set<number>()
+const reviewPlans = createReviewPlans()
+let stateStore: ReturnType<typeof createStateStore>
+let shutdownApproved = false
+let closing = false
+let savedBounds: Electron.Rectangle | undefined
+const pendingOpenPaths: string[] = []
+const profileDirectory = app.commandLine.getSwitchValue('user-data-dir')
+if (profileDirectory && isAbsolute(profileDirectory)) app.setPath('userData', profileDirectory)
+
+app.on('open-file', (event, path) => {
+  event.preventDefault()
+  pendingOpenPaths.push(path)
+  const window = BrowserWindow.getAllWindows().find((item) =>
+    trustedWindows.has(item.webContents.id)
+  )
+  if (window && !window.webContents.isLoading()) {
+    window.webContents.send('native-import', pendingOpenPaths.splice(0))
+    window.show()
+  }
+})
+if (!app.requestSingleInstanceLock()) app.quit()
+app.on('second-instance', (_event, argv) => {
+  const window = BrowserWindow.getAllWindows().find((item) =>
+    trustedWindows.has(item.webContents.id)
+  )
+  const paths = argv.filter(
+    (path) => isAbsolute(path) && VIDEO_EXTENSIONS.has(extname(path).toLowerCase())
+  )
+  if (window) {
+    window.show()
+    window.focus()
+    window.webContents.send('native-import', paths)
+  } else {
+    pendingOpenPaths.push(...paths)
+    if (stateStore) createWindow()
+  }
+})
+
+const handle: typeof ipcMain.handle = (channel, listener) => {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!trustedWindows.has(event.sender.id) || event.senderFrame !== event.sender.mainFrame)
+      throw new Error('This request is not from the app workspace.')
+    const url = new URL(event.senderFrame.url)
+    const expected = process.env.ELECTRON_RENDERER_URL
+    const trusted =
+      is.dev && expected
+        ? url.origin === new URL(expected).origin
+        : url.protocol === 'file:' &&
+          fileURLToPath(url) === join(__dirname, '../renderer/index.html')
+    if (!trusted) throw new Error('Untrusted app origin.')
+    return listener(event, ...args)
+  })
+}
+
+async function approveShutdown(): Promise<boolean> {
+  if (shutdownApproved || !hasActiveEncodings()) return true
+  if (closing) return false
+  closing = true
+  try {
+    const result = await dialog.showMessageBox({
+      type: 'question',
+      title: 'Stop encoding?',
+      message: 'Encoding is still running.',
+      detail:
+        'Closing will stop active jobs. Your queue will be restored next time; interrupted videos will restart from the beginning.',
+      buttons: ['Keep encoding', 'Stop and close'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    })
+    if (result.response !== 1) return false
+    shutdownApproved = true
+    cancelEncoding()
+    await waitForEncodings()
+    return true
+  } finally {
+    closing = false
+  }
+}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -95,10 +198,21 @@ function openAllowedExternalUrl(url: string): void {
 }
 
 function createWindow(): void {
+  shutdownApproved = false
   // Create the browser window.
+  const area = screen.getDisplayMatching(
+    savedBounds ?? { x: 0, y: 0, width: 1200, height: 800 }
+  ).workArea
+  const bounds = savedBounds
+  const width = Math.min(area.width, Math.max(760, bounds?.width ?? 1200))
+  const height = Math.min(area.height, Math.max(600, bounds?.height ?? 800))
   const mainWindow = new BrowserWindow({
-    width: 900,
-    height: 670,
+    width,
+    height,
+    x: bounds ? Math.max(area.x, Math.min(bounds.x, area.x + area.width - width)) : undefined,
+    y: bounds ? Math.max(area.y, Math.min(bounds.y, area.y + area.height - height)) : undefined,
+    minWidth: Math.min(760, area.width),
+    minHeight: Math.min(600, area.height),
     show: false,
     autoHideMenuBar: true,
     icon,
@@ -108,13 +222,33 @@ function createWindow(): void {
     }
   })
 
+  trustedWindows.add(mainWindow.webContents.id)
+  const contentsId = mainWindow.webContents.id
+  mainWindow.on('close', (event) => {
+    if (!shutdownApproved && hasActiveEncodings()) {
+      event.preventDefault()
+      void approveShutdown().then((approved) => {
+        if (approved) mainWindow.close()
+      })
+    }
+    if (!mainWindow.isMaximized() && !mainWindow.isMinimized()) {
+      savedBounds = mainWindow.getBounds()
+      void stateStore.write('window', savedBounds).catch(console.warn)
+    }
+  })
   mainWindow.on('closed', () => {
+    trustedWindows.delete(contentsId)
     cancelEncoding()
     void cleanupPreviews()
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url !== mainWindow.webContents.getURL()) event.preventDefault()
+  })
+  mainWindow.webContents.once('did-finish-load', () => {
+    // React attaches preload subscriptions after the document has loaded.
+    if (pendingOpenPaths.length)
+      mainWindow.webContents.send('native-import', pendingOpenPaths.splice(0))
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -138,30 +272,96 @@ function createWindow(): void {
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  stateStore = createStateStore(join(app.getPath('userData'), 'state'))
+  savedBounds = await stateStore
+    .read('window')
+    .then((saved) => {
+      const bounds = saved as Electron.Rectangle | null
+      return bounds && [bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)
+        ? bounds
+        : undefined
+    })
+    .catch(() => undefined)
+  await initializeHistory(stateStore).catch(console.warn)
   protocol.handle('encode-preview', previewResponse)
-  ipcMain.handle('get-ffmpeg-installer', getFfmpegInstaller)
-  ipcMain.handle('install-ffmpeg', (event) =>
+  handle('get-ffmpeg-installer', getFfmpegInstaller)
+  handle('install-ffmpeg', (event) =>
     installFfmpeg((log) => {
       if (!event.sender.isDestroyed()) event.sender.send('ffmpeg-install-log', log)
     })
   )
-  ipcMain.handle('create-preview', (event, options: PreviewOptions) => {
+  handle('create-preview', (event, options: PreviewOptions) => {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (!window) throw new Error('Preview window is unavailable')
     return createPreview(options, window)
   })
-  ipcMain.handle('cancel-preview', cancelPreview)
-  ipcMain.handle('release-preview', (_, id: string) => releasePreview(id))
-  ipcMain.handle('open-preview', (_, id: string) => openPreview(id))
-  ipcMain.handle('open-preview-window', async (event, id: string) => {
+  handle('cancel-preview', cancelPreview)
+  handle('release-preview', (_, id: string) => releasePreview(id))
+  handle('open-preview', (_, id: string) => openPreview(id))
+  handle('open-preview-window', async (event, id: string) => {
     const parent = BrowserWindow.fromWebContents(event.sender)
     if (!parent) throw new Error('The preview workspace is unavailable.')
     await openPreviewWindow(id, parent)
   })
-  ipcMain.handle('review-batch-outputs', (_, request: BatchReviewRequest) =>
-    reviewBatchOutputs(request)
+  handle('review-batch-outputs', (_, request: BatchReviewRequest) =>
+    reviewBatchOutputs(request).then((entries) => reviewPlans.issue(entries))
   )
+  handle('load-queue-state', () => stateStore.read('queue'))
+  handle('save-queue-state', (_, jobs: unknown[]) => {
+    if (!Array.isArray(jobs) || jobs.length > 20000 || JSON.stringify(jobs).length > 30_000_000)
+      throw new Error('This saved queue is too large or invalid.')
+    return stateStore.write('queue', jobs)
+  })
+  handle('get-encoding-history', getEncodingHistory)
+  onUpdateState((state) => {
+    for (const window of BrowserWindow.getAllWindows())
+      if (trustedWindows.has(window.webContents.id)) window.webContents.send('update-state', state)
+  })
+  handle('get-update-state', getUpdateState)
+  handle('check-for-updates', (_, channel: 'stable' | 'beta') => checkForUpdates(channel))
+  handle('download-update', downloadUpdate)
+  handle('install-update', () =>
+    installUpdate(async () => {
+      await stateStore.flush()
+      await cleanupPreviews()
+      if (hasActiveEncodings()) throw new Error('Finish active encodes before installing.')
+      quitReady = true
+      shutdownApproved = true
+    })
+  )
+  handle('clear-encoding-history', clearEncodingHistory)
+  handle('open-output', async (_, id: string, reveal: boolean) => {
+    const entry = (await getEncodingHistory()).find((item) => item.id === id)
+    if (!entry) throw new Error('This output is no longer in history.')
+    await stat(entry.outputPath)
+    if (reveal) shell.showItemInFolder(entry.outputPath)
+    else {
+      const error = await shell.openPath(entry.outputPath)
+      if (error) throw new Error(error)
+    }
+  })
+  handle('set-batch-progress', (event, progress: number) => {
+    if (!Number.isFinite(progress) || progress < -1 || progress > 1)
+      throw new Error('Invalid progress.')
+    BrowserWindow.fromWebContents(event.sender)?.setProgressBar(progress)
+  })
+  handle('notify-batch-complete', (_, successful: number, failed: number) => {
+    if (![successful, failed].every((count) => Number.isInteger(count) && count >= 0)) return
+    const mainWindow = BrowserWindow.getAllWindows().find((window) =>
+      trustedWindows.has(window.webContents.id)
+    )
+    if (mainWindow?.isFocused() || !Notification.isSupported()) return
+    const notification = new Notification({
+      title: 'Encode All',
+      body: `${successful} completed${failed ? `, ${failed} failed` : ''}.`
+    })
+    notification.on('click', () => {
+      mainWindow?.show()
+      mainWindow?.focus()
+    })
+    notification.show()
+  })
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.serch3.encode-all')
 
@@ -172,15 +372,86 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  async function importPaths(
+    paths: string[]
+  ): Promise<Array<{ name: string; path: string; size: number; modified: number }>> {
+    if (
+      !Array.isArray(paths) ||
+      paths.length > 20000 ||
+      paths.some((path) => typeof path !== 'string' || !isAbsolute(path))
+    )
+      throw new Error('Choose local files or folders.')
+    const files: Array<{ name: string; path: string; size: number; modified: number }> = []
+    for (const path of paths) {
+      const details = await stat(path)
+      if (details.isDirectory()) files.push(...(await readVideoFilesRecursive(path)))
+      else if (details.isFile() && VIDEO_EXTENSIONS.has(extname(path).toLowerCase()))
+        files.push({ name: basename(path), path, size: details.size, modified: details.mtimeMs })
+    }
+    return [...new Map(files.map((file) => [file.path, file])).values()]
+  }
+  async function selectVideoFiles(): Promise<Awaited<ReturnType<typeof importPaths>>> {
+    const result = await dialog.showOpenDialog({
+      title: 'Add videos',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Videos', extensions: [...VIDEO_EXTENSIONS].map((extension) => extension.slice(1)) }
+      ]
+    })
+    return result.canceled ? [] : importPaths(result.filePaths)
+  }
+  handle('select-video-files', selectVideoFiles)
+  handle('import-paths', (_, paths: string[]) => importPaths(paths))
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
+      {
+        label: 'File',
+        submenu: [
+          {
+            label: 'Add videos…',
+            accelerator: 'CmdOrCtrl+O',
+            click: () => {
+              void selectVideoFiles()
+                .then((files) => {
+                  const window = BrowserWindow.getAllWindows().find((item) =>
+                    trustedWindows.has(item.webContents.id)
+                  )
+                  window?.webContents.send(
+                    'native-import',
+                    files.map((file) => file.path)
+                  )
+                })
+                .catch(console.warn)
+            }
+          },
+          { type: 'separator' },
+          { role: process.platform === 'darwin' ? 'close' : 'quit' }
+        ]
+      },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+      {
+        role: 'help',
+        submenu: [
+          {
+            label: 'Report an issue',
+            click: () => openAllowedExternalUrl('https://github.com/serch3/encode-all/issues')
+          }
+        ]
+      }
+    ])
+  )
   // IPC handlers for folder reading
-  ipcMain.handle('select-folder', async () => {
+  handle('select-folder', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory']
     })
     return result.filePaths[0] || null
   })
 
-  ipcMain.handle('read-video-files', async (_, folderPath: string) => {
+  handle('read-video-files', async (_, folderPath: string) => {
     try {
       const videoFiles = await readVideoFilesRecursive(folderPath)
       return videoFiles.sort((a, b) => a.path.localeCompare(b.path))
@@ -293,44 +564,47 @@ app.whenReady().then(() => {
   }
 
   // FFmpeg-related IPC handlers
-  ipcMain.handle('check-ffmpeg', async (_, ffmpegPath?: string) => {
+  handle('check-ffmpeg', async (_, ffmpegPath?: string) => {
     return await checkFfmpegInstallation(ffmpegPath)
   })
 
-  ipcMain.handle('check-nvidia-support', async (_, ffmpegPath?: string) => {
+  handle('check-nvidia-support', async (_, ffmpegPath?: string) => {
     return await checkNvidiaSupport(ffmpegPath)
   })
-  ipcMain.handle('get-nvidia-encoders', (_, ffmpegPath?: string) =>
-    getSupportedNvidiaEncoders(ffmpegPath)
+  handle('get-nvidia-encoders', (_, ffmpegPath?: string) => getSupportedNvidiaEncoders(ffmpegPath))
+  handle('get-supported-encoders', (_, path?: string, refresh?: boolean) =>
+    getSupportedEncoders(path, refresh)
   )
 
-  ipcMain.handle('select-ffmpeg-path', async () => {
+  handle('select-ffmpeg-path', async () => {
     return await selectFfmpegExecutable()
   })
 
-  ipcMain.handle('open-external', async (_, url: string) => {
+  handle('open-external', async (_, url: string) => {
     openAllowedExternalUrl(url)
   })
 
-  ipcMain.handle('path-join', async (_, paths: string[]) => {
+  handle('path-join', async (_, paths: string[]) => {
     if (!Array.isArray(paths) || paths.some((path) => typeof path !== 'string')) {
       throw new Error('Invalid path arguments')
     }
     return join(...paths)
   })
 
-  ipcMain.handle('start-encoding', async (event, options: EncodingOptions & { jobId?: string }) => {
+  handle('start-encoding', async (event, options: EncodingOptions & { jobId?: string }) => {
     const window = BrowserWindow.fromWebContents(event.sender)
     if (window) {
-      await startEncoding(options, window)
+      await reviewPlans.verify(options)
+      const output = await startEncoding(options, window)
+      if (output) reviewPlans.release(options.reviewToken)
     }
   })
 
-  ipcMain.handle('cancel-encoding', async (_, jobId?: string) => {
+  handle('cancel-encoding', async (_, jobId?: string) => {
     cancelEncoding(jobId)
   })
 
-  ipcMain.handle('probe-file', async (_, filePath: string, ffmpegPath?: string) => {
+  handle('probe-file', async (_, filePath: string, ffmpegPath?: string) => {
     const probeBin = await resolveFfprobePath(ffmpegPath)
     // Use spawn with an args array to prevent shell injection via filePath
     const stdout = await runBinary(
@@ -346,25 +620,24 @@ app.whenReady().then(() => {
     }
   })
 
-  ipcMain.handle(
-    'save-text-file',
-    async (_, content: string, defaultName: string = 'queue-state.json') => {
-      const { filePath } = await dialog.showSaveDialog({
-        title: 'Save Encoding Queue',
-        defaultPath: defaultName,
-        filters: [{ name: 'JSON Files', extensions: ['json'] }]
-      })
+  handle('save-text-file', async (_, content: string, defaultName: string = 'queue-state.json') => {
+    const { filePath } = await dialog.showSaveDialog({
+      title: 'Save Encoding Queue',
+      defaultPath: defaultName,
+      filters: [{ name: 'JSON Files', extensions: ['json'] }]
+    })
 
-      if (filePath) {
-        // Use fs imports
-        writeFileSync(filePath, content, 'utf-8')
-        return true
-      }
-      return false
+    if (filePath) {
+      // Use fs imports
+      if (typeof content !== 'string' || content.length > 30_000_000)
+        throw new Error('Queue file is too large.')
+      await writeFile(filePath, content, 'utf-8')
+      return true
     }
-  )
+    return false
+  })
 
-  ipcMain.handle('read-text-file', async () => {
+  handle('read-text-file', async () => {
     const { filePaths } = await dialog.showOpenDialog({
       title: 'Load Encoding Queue',
       filters: [{ name: 'JSON Files', extensions: ['json'] }],
@@ -372,7 +645,8 @@ app.whenReady().then(() => {
     })
 
     if (filePaths && filePaths.length > 0) {
-      return readFileSync(filePaths[0], 'utf-8')
+      if ((await stat(filePaths[0])).size > 30_000_000) throw new Error('Queue file is too large.')
+      return readFile(filePaths[0], 'utf-8')
     }
     return null
   })
@@ -386,9 +660,19 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
-  cancelEncoding()
-  void cleanupPreviews()
+let quitReady = false
+app.on('before-quit', (event) => {
+  if (quitReady) return
+  event.preventDefault()
+  void (async () => {
+    if (!(await approveShutdown())) return
+    cancelEncoding()
+    await waitForEncodings()
+    await cleanupPreviews()
+    await stateStore?.flush().catch(console.warn)
+    quitReady = true
+    app.quit()
+  })()
 })
 
 // Quit when all windows are closed, except on macOS. There, it's common

@@ -1,3 +1,4 @@
+import { isHardwareEncoder } from '../../../shared/encoders'
 import { useEffect, useRef, useState } from 'react'
 import type { QueuedJob } from '../types'
 import type { PreviewResult } from '../../../preload/api.types'
@@ -59,6 +60,7 @@ export function useVideoPreview({
   const issues = encoding ? encodingIssues(encoding, supportedNvidiaEncoders) : []
   const canGenerate =
     ready &&
+    !(checking && isHardwareEncoder(encoding?.videoCodec ?? '')) &&
     !!job &&
     !busy &&
     !isEncoding &&

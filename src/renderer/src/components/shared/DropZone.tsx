@@ -80,7 +80,26 @@ export function DropZone({
       return
     }
 
-    const skipped = droppedFiles.length - newVideoFiles.length
+    const droppedFolders = droppedFiles.filter((file) => !file.name.includes('.'))
+    if (droppedFolders.length) {
+      setDropFeedback('Scanning dropped folders…')
+      const paths = droppedFolders.map((file) => window.api.getPathForFile(file)).filter(Boolean)
+      void window.api
+        .importPaths(paths)
+        .then((files) => {
+          if (files.length) {
+            onFilesDropped(files)
+            setDropFeedback(`Added videos from ${droppedFolders.length} folder(s).`)
+          } else setDropFeedback('No supported videos were found in the dropped folders.')
+        })
+        .catch((error) =>
+          setDropFeedback(
+            error instanceof Error ? error.message : 'Could not scan dropped folders.'
+          )
+        )
+      if (!newVideoFiles.length) return
+    }
+    const skipped = droppedFiles.length - newVideoFiles.length - droppedFolders.length
     if (newVideoFiles.length === 0) {
       setDropFeedback(
         'No supported videos were found. Try MP4, MKV, MOV, or another listed format.'

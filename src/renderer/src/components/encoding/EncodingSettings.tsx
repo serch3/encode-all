@@ -1,3 +1,5 @@
+import { VIDEO_ENCODERS, maxQualityFor, videoEncoder } from '../../../../shared/encoders'
+import { canUseTwoPass } from '../../../../shared/ffmpegArgs'
 import {
   Tabs,
   Tab,
@@ -23,6 +25,12 @@ import {
 } from '../shared/icons'
 
 interface EncodingSettingsProps {
+  targetSizeMb?: number
+  setTargetSizeMb?: (value: number) => void
+  pixelFormat?: 'compatible' | 'preserve'
+  setPixelFormat?: (value: 'compatible' | 'preserve') => void
+  maxHeight?: number
+  setMaxHeight?: (value: number) => void
   // Config state
   container: string
   setContainer: (value: string) => void
@@ -60,10 +68,17 @@ interface EncodingSettingsProps {
   hasNvidiaGpu: boolean
   supportedNvidiaEncoders?: string[]
   isCheckingHardware?: boolean
+  supportedEncoders?: string[]
   isNvenc: boolean
 }
 
 export default function EncodingSettings({
+  targetSizeMb = 0,
+  setTargetSizeMb,
+  pixelFormat = 'compatible',
+  setPixelFormat,
+  maxHeight = 0,
+  setMaxHeight,
   container,
   setContainer,
   videoCodec,
@@ -96,25 +111,26 @@ export default function EncodingSettings({
   hasNvidiaGpu,
   supportedNvidiaEncoders,
   isCheckingHardware = false,
+  supportedEncoders,
   isNvenc
 }: EncodingSettingsProps): React.JSX.Element {
   const allVideoCodecs = useMemo(
-    () => [
-      { key: 'libx264', label: 'H.264 (libx264)' },
-      { key: 'libx265', label: 'H.265 (libx265)' },
-      { key: 'libvpx-vp9', label: 'VP9 (libvpx-vp9)' },
-      ...(hasNvidiaGpu || (isCheckingHardware && videoCodec.includes('nvenc'))
-        ? [
-            { key: 'h264_nvenc', label: 'H.264 (NVIDIA NVENC)' },
-            { key: 'hevc_nvenc', label: 'H.265 (NVIDIA NVENC)' },
-            { key: 'av1_nvenc', label: 'AV1 (NVIDIA NVENC)' }
-          ].filter(
-            (codec) => !supportedNvidiaEncoders || supportedNvidiaEncoders.includes(codec.key)
+    () =>
+      VIDEO_ENCODERS.filter((encoder) => {
+        if (supportedEncoders)
+          return (
+            supportedEncoders.includes(encoder.key) ||
+            (isCheckingHardware && encoder.key === videoCodec)
           )
-        : []),
-      { key: 'copy', label: 'Copy' }
-    ],
-    [hasNvidiaGpu, isCheckingHardware, supportedNvidiaEncoders, videoCodec]
+        if (encoder.backend === 'software' || encoder.backend === 'copy') return true
+        return (
+          encoder.backend === 'nvidia' &&
+          ((isCheckingHardware && encoder.key === videoCodec) ||
+            (hasNvidiaGpu &&
+              (!supportedNvidiaEncoders || supportedNvidiaEncoders.includes(encoder.key))))
+        )
+      }),
+    [supportedEncoders, isCheckingHardware, videoCodec, hasNvidiaGpu, supportedNvidiaEncoders]
   )
 
   const allAudioCodecs = useMemo(
@@ -127,17 +143,7 @@ export default function EncodingSettings({
   )
 
   const availableVideoCodecs = useMemo(
-    () =>
-      allVideoCodecs.filter((codec) => {
-        if (container === 'webm') return ['libvpx-vp9', 'av1_nvenc', 'copy'].includes(codec.key)
-        if (container === 'mp4')
-          return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(
-            codec.key
-          )
-        if (container === 'mov')
-          return ['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'copy'].includes(codec.key)
-        return true // mkv supports all
-      }),
+    () => allVideoCodecs.filter((codec) => codec.containers.includes(container)),
     [allVideoCodecs, container]
   )
 
@@ -158,38 +164,11 @@ export default function EncodingSettings({
     ? audioCodec
     : ''
 
-  // Enforce container codec compatibility
+  const canEnableTwoPass = canUseTwoPass({ twoPass: true, videoCodec, rateControlMode })
+  const apple = videoEncoder(videoCodec)?.backend === 'apple'
   useEffect(() => {
-    if (container === 'webm') {
-      if (!['libvpx-vp9', 'av1_nvenc', 'copy'].includes(videoCodec)) {
-        setVideoCodec('libvpx-vp9')
-      }
-      if (!['libopus', 'copy'].includes(audioCodec)) {
-        setAudioCodec('libopus')
-      }
-    } else if (container === 'mp4') {
-      if (
-        !['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'copy'].includes(
-          videoCodec
-        )
-      ) {
-        setVideoCodec('libx264')
-      }
-      if (!['aac', 'libopus', 'copy'].includes(audioCodec)) {
-        setAudioCodec('aac')
-      }
-    } else if (container === 'mov') {
-      if (!['libx264', 'libx265', 'h264_nvenc', 'hevc_nvenc', 'copy'].includes(videoCodec)) {
-        setVideoCodec('libx264')
-      }
-      if (!['aac', 'copy'].includes(audioCodec)) {
-        setAudioCodec('aac')
-      }
-    }
-  }, [audioCodec, container, setAudioCodec, setVideoCodec, videoCodec])
-
-  const canEnableTwoPass =
-    rateControlMode === 'bitrate' && videoCodec !== 'copy' && !videoCodec.includes('nvenc')
+    if (apple && rateControlMode !== 'bitrate') setRateControlMode('bitrate')
+  }, [apple, rateControlMode, setRateControlMode])
   const copyingVideo = videoCodec === 'copy'
 
   useEffect(() => {
@@ -266,7 +245,7 @@ export default function EncodingSettings({
                 selectedKeys={[preset]}
                 onSelectionChange={(keys) => setPreset(Array.from(keys)[0] as string)}
                 description="Speed vs Compression efficiency"
-                isDisabled={isEncoding || copyingVideo}
+                isDisabled={isEncoding || copyingVideo || apple}
               >
                 <SelectItem key="ultrafast">Ultrafast</SelectItem>
                 <SelectItem key="superfast">Superfast</SelectItem>
@@ -287,30 +266,32 @@ export default function EncodingSettings({
                   onValueChange={(val) => setRateControlMode(val as 'crf' | 'bitrate')}
                   isDisabled={isEncoding || copyingVideo}
                 >
-                  <Radio value="crf">Constant Quality (CRF/CQ)</Radio>
+                  <Radio value="crf" isDisabled={apple}>
+                    Constant Quality (CRF/CQ)
+                  </Radio>
                   <Radio value="bitrate">Average Bitrate</Radio>
                 </RadioGroup>
 
                 {rateControlMode === 'crf' ? (
                   <Input
-                    label={isNvenc ? 'Quality (CQ)' : 'Quality (CRF)'}
+                    label={
+                      isNvenc ||
+                      videoEncoder(videoCodec)?.backend === 'intel' ||
+                      videoEncoder(videoCodec)?.backend === 'amd'
+                        ? 'Quality (CQ)'
+                        : 'Quality (CRF)'
+                    }
                     startContent={<SettingIcon className="w-5 h-5 text-default-400" />}
                     type="number"
                     value={crf.toString()}
                     min={0}
-                    max={videoCodec === 'libvpx-vp9' ? 63 : 51}
+                    max={maxQualityFor(videoCodec)}
                     onChange={(e) => {
                       const value = parseInt(e.target.value)
                       if (Number.isFinite(value))
-                        setCrf(Math.min(videoCodec === 'libvpx-vp9' ? 63 : 51, Math.max(0, value)))
+                        setCrf(Math.min(maxQualityFor(videoCodec), Math.max(0, value)))
                     }}
-                    description={
-                      isNvenc
-                        ? '1-51. Lower is better quality.'
-                        : videoCodec === 'libvpx-vp9'
-                          ? '0-63. Lower is better quality.'
-                          : '0-51. Lower is better quality. 18-28 is good.'
-                    }
+                    description={`0–${maxQualityFor(videoCodec)}. Lower is higher quality. Values apply to this encoder only.`}
                     isDisabled={isEncoding || copyingVideo}
                   />
                 ) : (
@@ -320,12 +301,54 @@ export default function EncodingSettings({
                     type="number"
                     value={videoBitrate.toString()}
                     onChange={(e) => setVideoBitrate(parseInt(e.target.value) || 2500)}
-                    description="Target average bitrate."
+                    description={
+                      apple
+                        ? 'Apple VideoToolbox uses average bitrate on Intel and Apple Silicon.'
+                        : 'Target average bitrate.'
+                    }
                     isDisabled={isEncoding || copyingVideo}
                   />
                 )}
               </div>
 
+              <Select
+                label="Output compatibility"
+                selectedKeys={[pixelFormat]}
+                onSelectionChange={(keys) =>
+                  setPixelFormat?.(Array.from(keys)[0] as 'compatible' | 'preserve')
+                }
+                isDisabled={isEncoding || copyingVideo}
+                description="Compatible SDR uses 8-bit 4:2:0. Preserve source format for HDR or higher bit depth."
+              >
+                <SelectItem key="compatible">Compatible SDR</SelectItem>
+                <SelectItem key="preserve">Preserve source format</SelectItem>
+              </Select>
+              <Select
+                label="Maximum resolution"
+                selectedKeys={[String(maxHeight)]}
+                onSelectionChange={(keys) => setMaxHeight?.(Number(Array.from(keys)[0]))}
+                isDisabled={isEncoding || copyingVideo}
+                description="Keeps aspect ratio and does not upscale."
+              >
+                <SelectItem key="0">Source resolution</SelectItem>
+                <SelectItem key="480">480p</SelectItem>
+                <SelectItem key="720">720p</SelectItem>
+                <SelectItem key="1080">1080p</SelectItem>
+                <SelectItem key="1440">1440p</SelectItem>
+                <SelectItem key="2160">2160p</SelectItem>
+              </Select>
+              {rateControlMode === 'bitrate' && (
+                <Input
+                  label="Target size per file (MB)"
+                  type="number"
+                  min={0}
+                  value={targetSizeMb ? String(targetSizeMb) : ''}
+                  placeholder="Optional"
+                  onValueChange={(value) => setTargetSizeMb?.(Math.max(0, Number(value) || 0))}
+                  isDisabled={isEncoding || copyingVideo}
+                  description="Approximate target using source duration and audio budget. Review shows each file's calculated bitrate."
+                />
+              )}
               <div className="flex flex-col gap-2 justify-center">
                 <Checkbox
                   isSelected={twoPass}
@@ -425,6 +448,7 @@ export default function EncodingSettings({
               >
                 <SelectItem key="none">None (Remove Subtitles)</SelectItem>
                 <SelectItem key="copy">Passthrough (Copy All)</SelectItem>
+                <SelectItem key="text">Convert text subtitles</SelectItem>
               </Select>
             </div>
           </Tab>

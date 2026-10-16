@@ -6,14 +6,16 @@ interface EncodingSummaryPageProps {
   summary: EncodingSummary
   onDismiss: () => void
   onReviewFailed?: () => void
+  onOpenHistory?: () => void
 }
 
 export default function EncodingSummaryPage({
   summary,
   onDismiss,
-  onReviewFailed
+  onReviewFailed,
+  onOpenHistory
 }: EncodingSummaryPageProps): React.JSX.Element {
-  const isCompleteSuccess = summary.failed === 0 && summary.canceled === 0
+  const isCompleteSuccess = summary.failed === 0 && summary.canceled === 0 && !summary.pending
 
   const formatDuration = (ms: number): string => {
     const totalSeconds = Math.floor(ms / 1000)
@@ -80,6 +82,11 @@ export default function EncodingSummaryPage({
             </div>
           </div>
 
+          {!!summary.pending && (
+            <p className="text-sm text-default-500">
+              {summary.pending} files were not started and remain in the queue.
+            </p>
+          )}
           <Divider />
 
           <div className="w-full flex justify-between gap-4 py-2 text-sm">
@@ -101,6 +108,11 @@ export default function EncodingSummaryPage({
                 onPress={onReviewFailed}
               >
                 Review Failed Items
+              </Button>
+            )}
+            {onOpenHistory && summary.successful > 0 && (
+              <Button variant="flat" onPress={onOpenHistory}>
+                View outputs
               </Button>
             )}
             <Button
@@ -142,7 +154,9 @@ export default function EncodingSummaryPage({
                         ? 'Success'
                         : job.status === 'error'
                           ? 'Failed'
-                          : 'Canceled'}
+                          : job.status === 'pending'
+                            ? 'Not started'
+                            : 'Canceled'}
                     </span>
                   </div>
                 ))}

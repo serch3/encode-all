@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 type LayoutProps = {
   title?: string
-  active: 'general' | 'preview' | 'settings' | 'about'
+  active: 'general' | 'preview' | 'settings' | 'about' | 'history'
   onSelect: (key: LayoutProps['active']) => void
   children: ReactNode
   onOpenQueue?: () => void

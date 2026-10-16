@@ -1,3 +1,5 @@
+import { isHardwareEncoder, videoEncoder } from '../../../../shared/encoders'
+import UpdatesCard from '../ffmpeg/UpdatesCard'
 import { Switch, cn, Card, CardBody, Button, Chip, Divider, Input } from '@heroui/react'
 import { useState, useEffect, useCallback } from 'react'
 import {
@@ -11,9 +13,12 @@ import {
 import type { FfmpegStatus } from '../../types'
 
 interface SettingsProps {
+  isEncoding?: boolean
   showFfmpegPreview: boolean
   onShowFfmpegPreviewChange: (value: boolean) => void
   hasNvidiaGpu: boolean
+  supportedEncoders?: string[]
+  onEncoderSupportChange?: (encoders: string[]) => void
   enableLogging: boolean
   onEnableLoggingChange: (value: boolean) => void
   logDirectory: string
@@ -25,9 +30,12 @@ interface SettingsProps {
 }
 
 export default function SettingsPage({
+  isEncoding = false,
   showFfmpegPreview,
   onShowFfmpegPreviewChange,
   hasNvidiaGpu,
+  supportedEncoders,
+  onEncoderSupportChange,
   enableLogging,
   onEnableLoggingChange,
   logDirectory,
@@ -40,21 +48,25 @@ export default function SettingsPage({
   // FFmpeg status state
   const [ffmpegStatus, setFfmpegStatus] = useState<FfmpegStatus>({ isInstalled: false })
   const [isCheckingFfmpeg, setIsCheckingFfmpeg] = useState(false)
-  const [isCheckingNvidia, setIsCheckingNvidia] = useState(false)
-  const [nvidiaStatus, setNvidiaStatus] = useState<boolean>(hasNvidiaGpu)
+  const [isCheckingHardware, setIsCheckingHardware] = useState(false)
+  const [hardwareEncoders, setHardwareEncoders] = useState<string[]>(
+    supportedEncoders?.filter(isHardwareEncoder) ?? []
+  )
+  const hasHardwareEncoders = hardwareEncoders.length > 0
 
-  const checkNvidiaStatus = useCallback(async (): Promise<void> => {
-    setIsCheckingNvidia(true)
+  const checkHardwareStatus = useCallback(async (): Promise<void> => {
+    setIsCheckingHardware(true)
     try {
-      const supported = await window.api?.checkNvidiaSupport(ffmpegPath)
-      setNvidiaStatus(supported)
+      const supported = await window.api.getSupportedEncoders(ffmpegPath, true)
+      setHardwareEncoders(supported.filter(isHardwareEncoder))
+      onEncoderSupportChange?.(supported)
     } catch (error) {
       console.error('Failed to check NVIDIA support:', error)
-      setNvidiaStatus(false)
+      setHardwareEncoders([])
     } finally {
-      setIsCheckingNvidia(false)
+      setIsCheckingHardware(false)
     }
-  }, [ffmpegPath])
+  }, [ffmpegPath, onEncoderSupportChange])
 
   const checkFfmpegStatus = useCallback(async (): Promise<void> => {
     setIsCheckingFfmpeg(true)
@@ -64,7 +76,7 @@ export default function SettingsPage({
 
       // Also re-check NVIDIA support when checking FFmpeg
       if (status?.isInstalled) {
-        checkNvidiaStatus()
+        checkHardwareStatus()
       }
     } catch (error) {
       setFfmpegStatus({
@@ -74,7 +86,7 @@ export default function SettingsPage({
     } finally {
       setIsCheckingFfmpeg(false)
     }
-  }, [checkNvidiaStatus, ffmpegPath])
+  }, [checkHardwareStatus, ffmpegPath])
 
   const handleSelectFfmpegPath = async (): Promise<void> => {
     try {
@@ -84,8 +96,9 @@ export default function SettingsPage({
         const status = await window.api?.checkFfmpeg(path)
         setFfmpegStatus(status || { isInstalled: false, error: 'API not available' })
         if (status?.isInstalled) {
-          const supported = await window.api?.checkNvidiaSupport(path)
-          setNvidiaStatus(Boolean(supported))
+          const supported = await window.api.getSupportedEncoders(path, true)
+          setHardwareEncoders(supported.filter(isHardwareEncoder))
+          onEncoderSupportChange?.(supported)
         }
       }
     } catch (error) {
@@ -100,12 +113,16 @@ export default function SettingsPage({
 
   useEffect(() => {
     checkFfmpegStatus()
-    // Sync local state with prop if it changes
-    setNvidiaStatus(hasNvidiaGpu)
-  }, [hasNvidiaGpu, checkFfmpegStatus])
+  }, [checkFfmpegStatus])
+  useEffect(() => {
+    setHardwareEncoders(
+      supportedEncoders?.filter(isHardwareEncoder) ?? (hasNvidiaGpu ? ['h264_nvenc'] : [])
+    )
+  }, [hasNvidiaGpu, supportedEncoders])
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Settings</h2>
+      <UpdatesCard isEncoding={isEncoding} />
 
       {/* FFmpeg Configuration Section */}
       <div className="space-y-4">
@@ -192,15 +209,19 @@ export default function SettingsPage({
             {/* Hardware Acceleration Status */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Cpu className={`w-5 h-5 ${nvidiaStatus ? 'text-success' : 'text-default-400'}`} />
+                <Cpu
+                  className={`w-5 h-5 ${hasHardwareEncoders ? 'text-success' : 'text-default-400'}`}
+                />
                 <div>
                   <p className="font-medium">Hardware Acceleration</p>
                   <p className="text-sm text-default-500">
-                    {isCheckingNvidia
-                      ? 'Checking available NVIDIA encoders…'
-                      : nvidiaStatus
-                        ? 'NVIDIA encoders are available. Choose an NVENC video codec to use them.'
-                        : 'No supported NVIDIA GPU detected'}
+                    {isCheckingHardware
+                      ? 'Checking available hardware encoders…'
+                      : hasHardwareEncoders
+                        ? hardwareEncoders
+                            .map((codec) => videoEncoder(codec)?.label ?? codec)
+                            .join(', ')
+                        : 'No usable hardware encoders detected. Software encoding is available.'}
                   </p>
                 </div>
               </div>
@@ -209,15 +230,19 @@ export default function SettingsPage({
                   size="sm"
                   variant="ghost"
                   isIconOnly
-                  aria-label="Check NVIDIA encoder support"
-                  onPress={checkNvidiaStatus}
-                  isLoading={isCheckingNvidia}
+                  aria-label="Check hardware encoder support"
+                  onPress={checkHardwareStatus}
+                  isLoading={isCheckingHardware}
                   isDisabled={!ffmpegStatus.isInstalled}
                 >
-                  <RefreshCw className={`w-4 h-4 ${isCheckingNvidia ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 ${isCheckingHardware ? 'animate-spin' : ''}`} />
                 </Button>
-                <Chip size="sm" color={nvidiaStatus ? 'success' : 'default'} variant="flat">
-                  {isCheckingNvidia ? 'Checking…' : nvidiaStatus ? 'Available' : 'Unavailable'}
+                <Chip size="sm" color={hasHardwareEncoders ? 'success' : 'default'} variant="flat">
+                  {isCheckingHardware
+                    ? 'Checking…'
+                    : hasHardwareEncoders
+                      ? 'Available'
+                      : 'Unavailable'}
                 </Chip>
               </div>
             </div>
