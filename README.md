@@ -25,20 +25,24 @@
 
 ### Core Functionality
 
-- **Batch & Queue** – Add folders, filter by status, undo removal, and run encodes with progress monitoring
-- **Output Review** – Check source files, effective encoding settings, available encoders, destination folders, and numbered output filenames before starting a batch
-- **Formats & Codecs** – MP4/MKV/MOV/WebM output; H.264, H.265, VP9, and NVIDIA AV1
+- **Batch & Queue** – Add files or folders, search a persistent queue, pause scheduling after active files finish, retry failures, and optionally continue after an error
+- **Output Review** – Check source streams, effective encoding settings, available encoders, destination space, and numbered output filenames before starting a batch; execution stays bound to the reviewed settings and source identity
+- **Formats & Codecs** – MP4/MKV/MOV/WebM output; software H.264, H.265, VP9, and AV1, plus detected NVIDIA NVENC, Apple VideoToolbox, Intel Quick Sync, and AMD AMF encoders
+- **Safe Output & History** – Encode into a private destination file, publish without overwriting existing videos, and browse the latest 200 successful outputs with sizes, savings, and Open/Reveal actions
 
 ### User Experience
 
 - **Modern UI & Themes** – Sleek design with light/dark mode
+- **Persistent Workspace** – Keep the searchable queue beside settings on larger windows, with bounded rendering for large batches and durable queue checkpoints across restarts
 - **Live Feedback** – FFmpeg command preview and real-time progress
-- **Preview Workspace** – A dedicated Preview tab with a large player, position control, and 1–30 second sample encodes using per-file overrides; inspect samples in a separate preview window or system player
+- **Preview Workspace** – A dedicated Preview tab with position control and 1–30 second sample encodes using per-file overrides; compare source/output side by side or open samples in a separate window or system player
 - **Readable Logs** – Expand terminal output when needed and pause automatic log following
+- **Desktop Integration** – Native file picker and open shortcut, saved window bounds, batch progress in the taskbar/Dock, and completion notifications when the app is unfocused
 
 ### Encoding Configuration
 
 - **Codec & Audio Controls** – Video/audio codec, bitrate, channels, thread tuning
+- **Delivery Controls** – Optional per-file target size in bitrate mode, maximum output height without upscaling, compatible pixel formats, individual audio/subtitle track selection, and text subtitle conversion
 - **Output Management** – Easy custom naming and output directory selection
 - **Starter Profiles** – Balanced MP4, Fast MP4, Compact HEVC, and WebM profiles with tradeoff descriptions and an indicator for modified settings
 
@@ -46,6 +50,7 @@
 
 - **FFmpeg Auto-Detection** – Automatically tries to locate FFmpeg on the system for seamless operation.
 - **Guided FFmpeg Installation** – Install FFmpeg and FFprobe using WinGet on Windows or an existing Homebrew installation on macOS, with live installation logs
+- **Explicit Updates** – Signed release builds can check stable or beta releases, download on request, and install while encoding is idle
 
 ## Installation
 
@@ -57,9 +62,12 @@ available on your system `PATH`, the app detects them automatically. You can als
 select a custom FFmpeg executable from Settings. FFprobe should live next to the
 selected FFmpeg binary. The setup dialog verifies both tools before enabling encoding.
 
-Windows x64 is the primary release target. The assisted installer defaults to a
-per-user installation and lets you choose its folder; the app runs without
-requesting administrator privileges.
+Windows x64 and macOS 13 or newer are the primary targets. macOS release packages
+are universal for Intel and Apple Silicon. The Windows assisted installer defaults
+to a per-user installation and lets you choose its folder; the app runs without
+requesting administrator privileges. Linux packages remain available with lower
+release priority. Hardware encoders depend on the FFmpeg build, GPU, and drivers;
+the app tests encoder initialization before offering them.
 
 On Windows, **Install FFmpeg** uses WinGet’s `Gyan.FFmpeg` package in user scope.
 WinGet requires Microsoft App Installer. On macOS, the same button uses an
@@ -78,11 +86,24 @@ the encoded sample in a separate resizable player. Stream copy preserves the
 original quality, so choose an encoder to preview compression. Playback depends
 on the codec/container; **Open in System Player** opens the actual sample when
 embedded playback is unavailable. Samples use temporary storage.
+**Compare source and output** synchronizes a muted original with the encoded
+sample; source playback also depends on the embedded player's codec support.
 
 Select the videos to encode and choose **Encode** to review their output paths.
 The review checks each source file, codec settings, available encoders, and
 output folder. Existing files and duplicate batch names receive numbered output
 filenames. Choose **Start batch** after resolving any reported problems.
+
+The queue restores interrupted work as pending after a restart. **Pause** lets
+active files finish and holds the next files; it does not suspend an FFmpeg process.
+Closing during active encoding asks whether to keep encoding or stop and close.
+The app does not encode in the background after its main window closes.
+
+Target size is approximate and reserves space for selected audio tracks and muxing
+overhead. Use two-pass bitrate encoding when size predictability matters. Compatible
+output uses an 8-bit 4:2:0 format; HDR sources require an explicit Preserve source
+format choice. Automatic HDR-to-SDR tone mapping and guaranteed preservation of
+dynamic HDR metadata are not implemented. Verify HDR output on its intended player.
 
 ## Development
 
@@ -128,7 +149,21 @@ npm run test:windows
 # Native Windows app playback, streaming, cleanup, and cancellation
 # Requires a production build and FFmpeg/FFprobe
 npm run test:windows:app
+
+# Native Electron app preview/encoding, history, checkpoint, and cancellation checks
+# Requires a production build, FFmpeg/FFprobe, and a graphical desktop
+npm run test:app
+
+# Launch the packaged Windows/macOS app and verify renderer/preload/FFmpeg discovery
+# First run the platform packaging command
+npm run test:packaged
 ```
+
+CI validates Windows, Apple Silicon macOS, Intel macOS, and Linux. Windows and
+macOS additionally run real FFmpeg/Electron checks and launch packaged apps.
+GPU availability varies by runner; a passing hosted-runner check does not establish
+compatibility with every GPU or driver. Local unit tests exercise safe file
+publication, queue recovery, scheduling, review integrity, and update behavior.
 
 ### Building
 
@@ -158,9 +193,31 @@ The workflow builds Windows, macOS, and Linux artifacts, uploads them to a
 GitHub prerelease, and generates release notes. macOS DMG/ZIP builds are universal
 and support Intel and Apple Silicon.
 
-Windows and macOS artifacts are unsigned unless signing credentials are provided
-to Electron Builder through repository secrets. Unsigned builds are useful for
-testing, but public releases should be signed before publishing.
+Set these repository secrets for signed releases:
+
+- Windows: `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`.
+- macOS: `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`,
+  `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`.
+
+Set repository variable `REQUIRE_SIGNING=true`, or select **Require signed
+Windows/macOS artifacts and macOS notarization** on a manual workflow run, to
+fail builds that cannot sign. Required signed macOS builds also validate the code
+signature, Gatekeeper assessment, and notarization ticket. The macOS configuration
+uses hardened runtime and the Electron JIT entitlement. No signing credentials
+are stored in the repository.
+
+Unsigned development builds remain available and link to the download page.
+The in-app updater is enabled only for required signed Windows/macOS release
+builds. It never downloads or restarts automatically and refuses installation
+during active encodes. The workflow currently publishes GitHub **prereleases**;
+promote a verified signed release on GitHub before offering it on the stable
+channel. Beta checks include prereleases. Linux build failure does not block
+Windows/macOS release publication.
+
+The compatibility changes still require native verification of signed installers,
+macOS Gatekeeper/notarization, Windows upgrade/uninstall, both Mac architectures,
+and representative NVIDIA/Intel/AMD/Apple hardware. Watch folders, time scheduling,
+and a main-process queue scheduler are future work.
 
 ## Tech Stack
 
