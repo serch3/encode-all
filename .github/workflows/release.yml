@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      require_signing:
+        description: Require signed Windows/macOS artifacts and macOS notarization
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -13,32 +18,36 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.platform == 'linux' }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: windows
             os: windows-latest
-            build: npm run build:win -- --publish never
             assets: |
               dist/*.exe
               dist/*.blockmap
               dist/latest.yml
+              dist/beta.yml
+              dist/alpha.yml
           - platform: macos
             os: macos-latest
-            build: npm run build:mac -- --publish never
             assets: |
               dist/*.dmg
               dist/*.zip
               dist/*.blockmap
               dist/latest-mac.yml
+              dist/beta-mac.yml
+              dist/alpha-mac.yml
           - platform: linux
             os: ubuntu-latest
-            build: npm run build:linux -- --publish never
             assets: |
               dist/*.AppImage
               dist/*.deb
               dist/latest-linux.yml
+              dist/beta-linux.yml
+              dist/alpha-linux.yml
 
     steps:
       - name: Check out repository
@@ -62,8 +71,47 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Build application
+        run: npm run build
+
+      - name: Install FFmpeg on macOS
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Install FFmpeg on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg installation failed' }
+          $ffmpeg = Get-ChildItem "$env:ChocolateyInstall\lib\ffmpeg" -Filter ffmpeg.exe -Recurse |
+            Where-Object { Test-Path (Join-Path $_.DirectoryName 'ffprobe.exe') } |
+            Select-Object -First 1
+          if (!$ffmpeg) { throw 'FFmpeg and FFprobe binaries were not found' }
+          "FFMPEG_PATH=$($ffmpeg.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          "FFPROBE_PATH=$(Join-Path $ffmpeg.DirectoryName 'ffprobe.exe')" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify native media behavior
+        if: runner.os == 'Windows' || runner.os == 'macOS'
+        run: |
+          npm run test:ffmpeg
+          npm run test:app
+
       - name: Build distributables
-        run: ${{ matrix.build }}
+        env:
+          REQUIRE_SIGNING: ${{ vars.REQUIRE_SIGNING == 'true' || inputs.require_signing == true }}
+          MAC_CSC_LINK: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_LINK || '' }}
+          MAC_CSC_KEY_PASSWORD: ${{ matrix.platform == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+          WIN_CSC_LINK: ${{ matrix.platform == 'windows' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ matrix.platform == 'windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ matrix.platform == 'macos' && secrets.APPLE_ID || '' }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.platform == 'macos' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'macos' && secrets.APPLE_TEAM_ID || '' }}
+        run: node scripts/build-release.mjs ${{ matrix.platform }}
+
+      - name: Verify packaged desktop app
+        if: runner.os == 'Windows' || runner.os == 'macOS'
+        run: npm run test:packaged
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

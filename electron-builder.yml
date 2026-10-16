@@ -31,6 +31,11 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  minimumSystemVersion: '13.0'
+  darkModeSupport: true
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
   artifactName: ${name}-${version}-${arch}-mac.${ext}
   target:
     - target: dmg
@@ -38,9 +43,8 @@ mac:
     - target: zip
       arch: [universal]
   extendInfo:
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
+    NSDocumentsFolderUsageDescription: Encode All reads videos and saves encoded files in folders you choose.
+    NSDownloadsFolderUsageDescription: Encode All reads videos and saves encoded files in folders you choose.
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:

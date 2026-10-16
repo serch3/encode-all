@@ -40,7 +40,9 @@
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "npm run build && electron-builder --mac",
     "build:linux": "npm run build && electron-builder --linux",
-    "release": "npm run build && electron-builder --publish always"
+    "release": "npm run build && electron-builder --publish always",
+    "test:app": "node scripts/verify-app.mjs",
+    "test:packaged": "node scripts/verify-packaged.mjs"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",
